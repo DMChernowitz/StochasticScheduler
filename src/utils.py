@@ -1,8 +1,14 @@
-from typing import List, Tuple, Dict, Set
+from typing import List, Tuple, Dict, Set, Any
 
 import numpy as np
 
 from src.Objects import Task
+
+
+def str_of_length(s: Any, length: int) -> str:
+    """Return a string of length length, padding with spaces if necessary"""
+    _s = str(s)[:length]
+    return _s + " " * (length - len(_s))
 
 def prune_dependencies(tasks: List[Task]) -> None:
     """Remove dependencies that are already dependencies of dependencies"""

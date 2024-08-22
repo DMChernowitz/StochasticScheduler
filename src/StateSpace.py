@@ -1,6 +1,6 @@
 """Hold the possible states in the state space of the project."""
 from enum import Enum
-from typing import List, Dict, Tuple, Union
+from typing import List, Dict, Tuple, Union, Type, TypeVar
 
 import random
 
@@ -8,6 +8,7 @@ import numpy as np
 
 from src.Objects import Task, Resource, ExponentialDistribution
 
+S = TypeVar("S", bound="State")
 
 class Stati(Enum):
     waiting = 0
@@ -16,24 +17,31 @@ class Stati(Enum):
 
 
 class State:
-    """One state in the state space of the project."""
+    """One state in the state space of the project.
+
+    Represented by concatenation of integers, each representing the state of a task at that index.
+    The state of a task can be waiting, active, or finished, and the corresponding integers are 0, 1, and 2.
+    """
 
     allowed_values = [s.value for s in Stati]
 
     def __init__(self, stati: List[int]):
+        """Initialise a state with a list of integers representing the state of each task."""
         for stat in stati:
             if stat not in self.allowed_values:
                 raise ValueError(f"State must be one of {self.allowed_values}")
         self.stati: Tuple[int] = tuple(stati)
 
-    def finish_task(self, task_id: int):
+    def finish_task(self, task_id: int) -> S:
+        """Return the state that results from finishing a task at a given index."""
         if self.stati[task_id] != Stati.active.value:
             raise ValueError("task must be active to be finished")
         new_stati = list(self.stati)
         new_stati[task_id] = Stati.finished.value
         return State(new_stati)
 
-    def start_task(self, task_id: int):
+    def start_task(self, task_id: int) -> S:
+        """Return the state that results from starting a task at a given index."""
         if self.stati[task_id] != Stati.waiting.value:
             raise ValueError("task must be waiting to be started")
         new_stati = list(self.stati)
@@ -41,14 +49,17 @@ class State:
         return State(new_stati)
 
     def copy(self):
+        """Return a copy of the state."""
         return State(list(self.stati))
 
     @property
-    def is_initial(self):
+    def is_initial(self) -> bool:
+        """Return True if the state is the initial state of the project, i.e. all tasks waiting to begin."""
         return all([self.stati[i] == Stati.waiting.value for i in range(len(self.stati))])
 
     @property
-    def is_final(self):
+    def is_final(self) -> bool:
+        """Return True if the state is the final state of the project, i.e. all tasks finished."""
         return all([self.stati[i] == Stati.finished.value for i in range(len(self.stati))])
 
     def __iter__(self):
@@ -67,13 +78,28 @@ class State:
         return self.stati == other.stati
 
     def __repr__(self):
-        return "".join(map(str, self.stati))
+        return "<"+"".join(map(str, self.stati))+">"
 
 
 class StateSpace:
-    """Hold the possible states in the state space of the project."""
+    """Hold the possible states in the state space of the project.
+
+    Also keeps track of the possible transitions between states, the graph topology, and the expected duration to reach
+    each state.
+    """
 
     def __init__(self, tasks: List[Task], resource_capacities: Dict[Resource, int]):
+        """Initialise a state space with tasks and resource capacities.
+
+        Also construct the state space graph, which is a dictionary of states,
+            each with a dictionary of possible transitions.
+
+        These are necessary because prerequisites and resource requirements determine the possible transitions
+            and possible simultaneously active tasks.
+
+        :param tasks: A list of tasks, using the Task class.
+        :param resource_capacities: A dictionary with resources as keys and capacities as values
+        """
         self.tasks = tasks
         self.resource_capacities = resource_capacities
 
@@ -96,15 +122,18 @@ class StateSpace:
         self.expected_duration: Union[float, None] = None
         self.contingency_table: Dict[State, Union[int, None]] = {}
 
-
     @property
-    def states(self):
+    def states(self) -> Tuple[State]:
+        """Return a tuple of all states in the state space."""
         return tuple(self.graph.keys())
 
     def descendants_of(self, state: State):
+        """Return a list of possible transitions from a state, both due to starting and finishing tasks, after
+        the graph has been constructed."""
         return self.graph[state]["s"] + self.graph[state]["f"]
 
     def _graph_from_tasks(self) -> Dict[State, Dict[str, List[Tuple[int, State]]]]:
+        """Construct the state space graph from the tasks using recursion."""
         for h, task in enumerate(self.tasks):
             if h != task.id:
                 raise ValueError("Tasks must have ids equal to their index in the list")
@@ -125,6 +154,21 @@ class StateSpace:
         return graph
 
     def _get_descendants(self, state: State) -> Dict[str, List[Tuple[int, State]]]:
+        """Return the possible transitions from a state, both due to starting and finishing tasks.
+
+        A transition is possible if the status of exactly one task is different, going from waiting to active,
+        or from active to finished.
+        Moreover, a task can only start if all its dependencies are finished,
+        and if there are enough resources available for the task along with all other active tasks.
+        Active tasks can always finish. This simply takes time, but that is not modelled here.
+
+        :param state: The state from which to find the possible transitions.
+
+        :return: A dictionary with two keys, "s" and "f", each with a list of tuples.
+            The first element of the tuple is the task id that changes status
+            The second element is the state that results from the transition.
+        """
+        # initialize result containers
         started: List[Tuple[int, State]] = []  # (task_id, state)
         finished: List[Tuple[int, State]] = []  # (task_id, state)
         currently_active: List[int] = [i for i in range(len(state)) if state[i] == Stati.active.value]

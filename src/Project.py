@@ -45,7 +45,6 @@ class Project:
         print(self.state_space.graph)
         print(f"fastest path given (average) of task duration realizations:")
         print(self.state_space.expected_duration)
-        print(self.state_space.remaining_path_lengths)
         print("multiply by -log(1-p) for quantile p duration")
 
     @property

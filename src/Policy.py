@@ -4,6 +4,8 @@ from src.Project import Project
 from src.Objects import Resource, Task
 from src.StateSpace import State
 
+from src.utils import str_of_length
+
 class Policy:
 
     def __init__(self, project: Project, policy: List[int]):
@@ -88,13 +90,90 @@ class Policy:
                     return self.policy.pop(j)
         return None
 
+    def get_gant_str(self, n_times: int =100) -> str:
+        """Return a string representation of the gantt chart of the policy, after execution."""
+
+        timescale = max(self.task_ids_finished_per_time.keys(), default=0)
+        dt = timescale / n_times
+
+        gantt_list = ["Task : |" + " " * n_times + "| (start, end ) | prereq: [ids]", "."*(n_times+39)]
+
+        inverse_task_start_dict: Dict[int,Union[int,float]] = {}
+        inverse_task_finish_dict: Dict[int,Union[int,float]] = {}
+
+        for time,task_ids in self.task_ids_finished_per_time.items():
+            for task_id in task_ids:
+                inverse_task_finish_dict[task_id] = time
+
+        for time,task_ids in self.docket.items():
+            for task_id in task_ids:
+                inverse_task_start_dict[task_id] = time
+
+        for id in self.project.task_dict.keys():
+
+            start_time_str = str_of_length(inverse_task_start_dict.get(id,'?'),5)
+            finish_time_str = str_of_length(inverse_task_finish_dict.get(id,'?'),5)
+
+            prereq_str = str(self.project.task_dict[id].minimal_dependencies)
+
+            suffix = f"| ({start_time_str},{finish_time_str}) | prereq: {prereq_str}"
+            task_str = str_of_length(id, 5)+": |"
+
+            if id in inverse_task_start_dict and id in inverse_task_finish_dict:
+
+                _s, _f = inverse_task_start_dict[id], inverse_task_finish_dict[id]
+
+                middle_string = "".join(["■" if _s <= i * dt < _f else " " for i in range(n_times)])
+
+            else:
+                middle_string = " " * n_times
+
+            gantt_list.append(task_str + middle_string + suffix)
+        gantt_list.append("Time : 0 " + "." * (n_times-4) + " " + str(timescale)[:5])
+
+        return "\n".join(gantt_list)
+
+    def get_resource_chart(self, n_times: int = 100) -> str:
+        """Return a string representation of the resource chart of the policy, after execution."""
+
+        timescale = max(self.resources_snapshots.keys(), default=0)
+        dt = timescale / n_times
+
+        res_str = ""
+
+        for resource in Resource:
+            max_n_resources = self.project.resource_capacities[resource]
+            resource_graph = [str_of_length(j,5)+": |" for j in range(max_n_resources)]
+
+            # iterate over the snapshots of the resources. We are always in a certain period between two snapshots
+            items_iter = iter(self.resources_snapshots.items())
+            _, resource_dict = next(items_iter)
+            next_snapshot, next_resource_dict = next(items_iter, (timescale,{}))
+            # we want a column for each time step
+            for i in range(n_times):
+                while i * dt > next_snapshot:
+                    resource_dict = next_resource_dict
+                    next_snapshot, next_resource_dict = next(items_iter, (timescale,{}))
+                for h_resource in range(max_n_resources):
+                    if resource_dict[resource] > h_resource:
+                        resource_graph[h_resource] += "■"
+                    else:
+                        resource_graph[h_resource] += " "
+            res_str += f"Requirement of {resource}:\n"
+            res_str += "\n".join(resource_graph[::-1])+"\n"
+        return res_str
+
     def __repr__(self):
+
+        gant_str = self.get_gant_str()
+
+        resource_str = self.get_resource_chart()
+
         return (
             "----------------------------------------\n"
-            f"Policy with policy {self.original_policy} \n,"
-            f"task_ids_finished_per_time {self.task_ids_finished_per_time} \n, "
-            f"docket {self.docket} \n, "
-            f"resources_used {self.resources_snapshots} \n"
+            f"Policy precedence {self.original_policy} \n"
+            f"{gant_str}\n"
+            f"{resource_str}\n"
             "----------------------------------------\n"
             )
 
@@ -103,11 +182,6 @@ class DynamicPolicy:
     """A policy that is dynamically updated based on the current state of the project."""
     def __init__(self, project: Project):
         self.project: Project = project
-        # self.task_completion: Dict[int, bool] = {task_id: False for task_id in project.task_dict.keys()}
-        # self.resource_available_current: Dict[Resource,int] = {
-        #     resource: project.resource_capacities[resource]
-        #     for resource in Resource
-        # }
         self.time_step: Union[int,float] = 0
         self.current_state: State = self.project.state_space.initial_state.copy()
         self.state_sequence: List[Tuple[Union[int,float],State]] = [(self.time_step, self.current_state.copy())]

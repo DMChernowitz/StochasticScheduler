@@ -93,9 +93,15 @@ class Experiment:
             plt.hist(results, label=fig_label, alpha=0.5, color=color, bins=bins)
 
         dijkstra_average = sum(self.results_dict["dijkstra"])/Config.n_runs
+        shown_label = False
         for average in averages:
-            plt.axvline(x = average, color = "blue")
-        plt.axvline(x = dijkstra_average, color = "red")
+            if not shown_label:
+                label = "static policy average"
+                shown_label = True
+            else:
+                label = None
+            plt.axvline(x = average, color = "blue", label=label)
+        plt.axvline(x = dijkstra_average, color = "red", label="dijkstra averages")
         plt.title(f"Distribution and avg of completion time (N={Config.n_runs}) of policies vs. Dijkstra")
         plt.xlabel("Completion time")
         plt.ylabel("Frequency")

@@ -1,7 +1,7 @@
 class Config:
     # project parameters
-    max_simultaneous_resources_required = 10
-    resource_available = 15
+    max_simultaneous_resources_required = 8
+    resource_available = 10
     min_days_range = 4
     max_days_range = 4
     n_tasks = 15
