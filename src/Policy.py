@@ -129,9 +129,13 @@ class Policy:
                 middle_string = " " * n_times
 
             gantt_list.append(task_str + middle_string + suffix)
-        gantt_list.append("Time : 0 " + "." * (n_times-4) + " " + str(timescale)[:5])
+        gantt_list.append(self.get_time_axis(n_times))
 
         return "\n".join(gantt_list)
+
+    def get_time_axis(self, n_times: int) -> str:
+        timescale = max(self.task_ids_finished_per_time.keys(), default=0)
+        return "Time : 0 " + "." * (n_times - 4) + " " + str(timescale)[:5]
 
     def get_resource_chart(self, n_times: int = 100) -> str:
         """Return a string representation of the resource chart of the policy, after execution."""
@@ -160,7 +164,7 @@ class Policy:
                     else:
                         resource_graph[h_resource] += " "
             res_str += f"Requirement of {resource}:\n"
-            res_str += "\n".join(resource_graph[::-1])+"\n"
+            res_str += "\n".join(resource_graph[::-1]+[self.get_time_axis(n_times)])+"\n"
         return res_str
 
     def __repr__(self):
@@ -174,7 +178,8 @@ class Policy:
 
         return (
             "----------------------------------------\n"
-            f"Policy precedence {self.original_policy} \n"
+            f"Policy with precedence {self.original_policy} \n"
+            "Gantt Chart:\n"
             f"{gant_str}\n"
             f"{resource_str}\n"
             "----------------------------------------\n"
