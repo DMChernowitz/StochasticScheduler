@@ -22,6 +22,7 @@ class ExponentialDistribution:
         if lam <= 0:
             raise ValueError("Lambda must be positive")
         self.scale = 1 / lam
+        self.name = "Exponential"
 
     def realization(self) -> float:
         return np.random.exponential(self.scale)
@@ -61,6 +62,7 @@ class IntProbabilityDistribution:
         self._values = values
         self._probabilities = probabilities
         self._finish_prob_dict = self._prob_finish_at()
+        self.name = "Int Discrete"
 
     @property
     def max(self) -> int:
@@ -131,7 +133,7 @@ class Task:
         :param dependencies: List of task ids that must be completed before this task can start.
         """
         self.id: int = id
-        self.dependencies: List[int] = dependencies
+        self.dependencies: List[int] = sorted(dependencies)
         self.resource_requirements: Dict[Resource, int] = resource_requirements
         self.duration_distribution: Union[IntProbabilityDistribution,ExponentialDistribution] = duration_distribution
         self.minimal_dependencies: Union[None,List[int]] = None

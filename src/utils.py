@@ -10,6 +10,19 @@ def str_of_length(s: Any, length: int) -> str:
     _s = str(s)[:length]
     return _s + " " * (length - len(_s))
 
+
+def format_table(table: List[List[str]]) -> str:
+    """Put together a table where the first row is the titles."""
+    row_iter = range(len(table))
+    col_iter = range(len(table[0]))
+    col_widths = [max(len(table[_r][_c]) for _r in row_iter)+1 for _c in col_iter]
+    new_table = ["| ".join([str_of_length(table[_r][_c],col_widths[_c]) for _c in col_iter]) for _r in row_iter]
+    hline = "|-".join(["-"*col_widths[_c] for _c in col_iter])
+    new_table.insert(1,hline)
+    new_table.append(hline)
+    return "| "+"|\n| ".join(new_table)+"|"
+
+
 def prune_dependencies(tasks: List[Task]) -> None:
     """Remove dependencies that are already dependencies of dependencies"""
     full_dep_dict: Dict[int, List[int]] = {}
@@ -21,8 +34,14 @@ def prune_dependencies(tasks: List[Task]) -> None:
                     full_dep_dict[task.id].append(dependency_of_dependency)
     for task in tasks:
         task.full_dependencies = full_dep_dict[task.id]
-        dependencies_of_dependencies: Set[int] = {dependency_of_dependency for dependency in task.dependencies for dependency_of_dependency in full_dep_dict[dependency]}
-        task.minimal_dependencies = [dependency for dependency in task.dependencies if dependency not in dependencies_of_dependencies]
+        dependencies_of_dependencies: Set[int] = {
+            dependency_of_dependency
+            for dependency in task.dependencies
+            for dependency_of_dependency in full_dep_dict[dependency]
+        }
+        task.minimal_dependencies = sorted(
+            [dependency for dependency in task.dependencies if dependency not in dependencies_of_dependencies]
+        )
 
 
 def binom(a,b):
@@ -53,8 +72,10 @@ def log_normal(x: float, mu: float, sigma: float) -> float:
 def log_normal_mean(mu: float, sigma: float) -> float:
     return np.exp(mu + sigma**2 / 2)
 
+
 def log_normal_variance(mu: float, sigma: float) -> float:
     return (np.exp(sigma**2) - 1) * np.exp(2 * mu + sigma**2)
+
 
 def erlang_closest_to_log_normal(mu: float, sigma: float) -> Tuple[int, float]:
     ln_mu = log_normal_mean(mu, sigma)
@@ -62,6 +83,7 @@ def erlang_closest_to_log_normal(mu: float, sigma: float) -> Tuple[int, float]:
     k = int(np.round(ln_mu**2 / ln_var))
     lam = ln_mu/ln_var
     return k, lam
+
 
 def log_normal_to_erlang(mu, sigma):
     k = int(np.round(1/(np.exp(sigma**2)-1)))

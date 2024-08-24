@@ -61,10 +61,10 @@ class Experiment:
 
         Also report on the p-value of each policy being worse than dijkstra.
         """
+        print(self.project)
         if self.results_dict == {}:
             raise ValueError("Experiment has not been run yet")
-        print(f"After {self.config.n_runs} runs:")
-        print(self.project)
+        print(f"Analyzing experiment after {self.config.n_runs} runs:")
 
         for label, p, better_worse in zip(self.results_dict.keys(), *self.calculate_p_value()):
             better = "better" if better_worse else "worse"

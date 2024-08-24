@@ -165,6 +165,9 @@ class Policy:
 
     def __repr__(self):
 
+        if self.time_step == 0:
+            return "Policy (not yet executed)"
+
         gant_str = self.get_gant_str()
 
         resource_str = self.get_resource_chart()

@@ -1,10 +1,13 @@
 """Hold the possible states in the state space of the project."""
 from enum import Enum
-from typing import List, Dict, Tuple, Union, Type, TypeVar
+from typing import List, Dict, Tuple, Union, TypeVar
 
 import random
 
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.collections import PatchCollection
+from matplotlib import patches as mpatches
 
 from src.Objects import Task, Resource, ExponentialDistribution
 
@@ -80,6 +83,10 @@ class State:
     def __repr__(self):
         return "<"+"".join(map(str, self.stati))+">"
 
+    @property
+    def rank(self) -> int:
+        """Return the depth of the state in the state space graph: number of vertices traversed to reach it."""
+        return sum(self.stati)
 
 class StateSpace:
     """Hold the possible states in the state space of the project.
@@ -100,6 +107,9 @@ class StateSpace:
         :param tasks: A list of tasks, using the Task class.
         :param resource_capacities: A dictionary with resources as keys and capacities as values
         """
+        self.wait_is_faster_states = None  # States from which it is faster to wait for a task to finish
+        # than to start a new one, despite resources being available: curious situation, worth keeping track
+
         self.tasks = tasks
         self.resource_capacities = resource_capacities
 
@@ -107,13 +117,8 @@ class StateSpace:
         # transitions: can only be a single change, from waiting to active, or from active to finished
         # and from waiting to active, only dependent on the resources available
         # and contingent on dependencies being finished
-        self.initial_state: Union[State, None] = None
-        self.final_state: Union[State, None] = None
-        for state in self.states:
-            if state.is_initial:
-                self.initial_state: State = state
-            if state.is_final:
-                self.final_state: State = state
+        self.initial_state = State([Stati.waiting.value]*len(tasks))
+        self.final_state = State([Stati.finished.value]*len(tasks))
 
         # initialize a hash table for the path lengths
         self.remaining_path_lengths: Dict[State, Union[None, Union[float, int]]] = {}
@@ -218,19 +223,30 @@ class StateSpace:
         # The contingency table is the decision rule for each state: what to do next if we find ourselves in that state.
         self.contingency_table: Dict[State, Union[int, None]] = {self.final_state: None}
         self.decision_quantile = decision_quantile
+
+        self.wait_is_faster_states = []  # reset the list of states where waiting is faster than starting a new task
+
+        # by querying the initial state, we will recursively calculate the expected duration to reach all states
         self.expected_duration = self.dynamic_step(self.initial_state)
+        if self.wait_is_faster_states:
+            print(f"It was faster to wait for a task to finish than "
+                  f"to start a new one from {len(self.wait_is_faster_states)} states.")
+
         return self.contingency_table
 
     def dynamic_step(
             self,
             state,
     ):
-        """Recursion step.
+        """Recursion step. Returns the expected duration to reach the final state from a given state.
 
-        Calculate the expected duration to reach a state, given the expected durations of its descendants.
+        This duration depends on the state, the transition to its descendants, and the time from each descendant.
+        Along the way, all durations from descendants are calculated and stored, recursively,
+        in self.remaining_path_lengths
+
         This is only implemented for exponential distributions, as the state space has no memory.
 
-        If the path length to a state has already been calculated in a different branch, return it.
+        If the path length to a state has already been calculated in a different branch, it is returned immediately.
 
         Else, enumerate the possible transitions from the state, and calculate the expected duration to reach each
 
@@ -283,7 +299,7 @@ class StateSpace:
             # don't start a task, but wait for one to finish
             self.contingency_table[state]: None = None
             if wait_option < np.inf and best_start_option[1] < np.inf:
-                print(f"it was faster to wait for a task to finish than to start a new one, from {state}.")
+                self.wait_is_faster_states.append(state)
 
         return self.remaining_path_lengths[state]
 
@@ -319,3 +335,88 @@ class StateSpace:
         wait_time = composite_exponential.realization()
         new_state_n = np.random.choice(list(range(len(next_states))), p=[lam / sum_lambda for lam in lambdas])
         return {"time": wait_time, "state": next_states[new_state_n]}
+
+    def visualize_graph(self) -> None:
+        """Create a graph of the graph."""
+
+        state_ranks: Dict[int, List[State]] = {k: [] for k in range(2*len(self.tasks)+1)}
+
+        for state in self.states:
+            state_ranks[state.rank].append(state)
+
+        # see how many states map to each state in the graph
+        inverse_state_graph: Dict[State, List[State]] = {state: [] for state in self.states}
+        for state, transitions in self.graph.items():
+            for _, next_state in transitions["s"] + transitions["f"]:
+                inverse_state_graph[next_state].append(state)
+
+        def avg_pos_precursors(_state) -> float:
+            if not inverse_state_graph[_state]:
+                return 0
+            return sum(state_positions[prev][1] for prev in inverse_state_graph[_state]) / len(inverse_state_graph[_state])
+
+        # get position of each state on the canvas:
+        state_positions: Dict[State, Tuple[int, int]] = {}
+        for rank in state_ranks.keys():
+            # heuristic: sort by the average height of the states that will point to this state
+            # hopefully will make arrows as horizontal as possible
+            states = sorted(
+                state_ranks[rank],
+                key=avg_pos_precursors
+            )
+            for i, state in enumerate(states):
+                state_positions[state] = (rank, i)
+
+        def make_arrow(start_pos: Tuple[int, int], end_pos: Tuple[int, int]) -> mpatches.Arrow:
+            return mpatches.Arrow(start_pos[0], start_pos[1], 1, end_pos[1] - start_pos[1], width=0.3, alpha = 0.5)  # x, y, dx, dy
+
+        # create the line collection data for the transitions
+        sf_collections = {"s": [], "f": []}  # for the lines of task starting and task finishing
+        for state, transitions in self.graph.items():
+            for lab_letter in ["s", "f"]:
+                for task_id, next_state in transitions[lab_letter]:
+                    sf_collections[lab_letter].append(
+                        make_arrow(state_positions[state], state_positions[next_state])
+                    )
+
+        fig, ax = plt.subplots()
+        ax.set_xlim(-1, 2*len(self.tasks)+1)
+        max_height = max(map(len, state_ranks.values()))
+        ax.set_ylim(-1, max_height)
+
+        if (lsc := len(sf_collections["s"])) != len(sf_collections["f"]):
+            raise ValueError("There should be the same number of states starting and finishing in the total graph.")
+
+        pc = PatchCollection(sf_collections["s"] + sf_collections["f"], color= ["r"]*lsc+["b"]*lsc,)
+
+        # lc = LineCollection(start_collection+finish_collection, linewidths=1, colors=["r"]*lsc+["b"]*lsc)
+
+        # plot the states as dots
+        ax.scatter(*zip(*state_positions.values()), color="black")
+        for label,if_state,col in [("Initial", self.initial_state, "g"), ("Final", self.final_state, "y")]:
+            x,y = state_positions[if_state]
+            ax.text(x,y+max_height/20, label[0], fontsize=12)
+            ax.plot(x,y,marker="s",c=col, label=f"{label} State", markersize=10)
+
+
+        ax.add_collection(pc)
+
+        # access legend objects automatically created from data
+        handles, _ = plt.gca().get_legend_handles_labels()
+
+        # create manual symbols for legend
+        handles.extend(
+            [mpatches.Arrow(0,0,1,0,color=c, label=lab) for c, lab in [("r", "start task"), ("b", "finish task")]]
+        )
+
+        ax.legend(handles=handles)
+
+        # x label
+        ax.set_xlabel("Progress in project execution")
+        ax.set_ylabel("Number of possible states")
+        ax.set_title("State Space Transition Graph")
+
+        plt.show()
+
+
+

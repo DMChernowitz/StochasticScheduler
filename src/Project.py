@@ -3,7 +3,7 @@ from typing import Dict, List, TypeVar, Type
 from src.Objects import Task, Resource
 from src.config import Config
 from src.Generation import generate_task
-from src.utils import prune_dependencies
+from src.utils import prune_dependencies, format_table
 from src.StateSpace import StateSpace
 
 import networkx as nx
@@ -40,12 +40,15 @@ class Project:
         self.average_duration: float = sum([task.duration_distribution.average for task in tasks])
         self.state_space: StateSpace = StateSpace(tasks, resource_capacities)
         average_quantile = 1-1/np.exp(1)
+        print(f"Creating project with {len(tasks)} tasks, "
+              f"running stochastic Dijkstra's on it to find optimal contigent policy. ")
         self.contingency_table = self.state_space.construct_shortest_path_length(decision_quantile=average_quantile)
 
-        print(self.state_space.graph)
-        print(f"fastest path given (average) of task duration realizations:")
-        print(self.state_space.expected_duration)
-        print("multiply by -log(1-p) for quantile p duration")
+        print(f"Expected duration of fastest path: {round(self.state_space.expected_duration,4)}")
+        print("(multiply by -log(1-p) for quantile p duration of each task, instead of expected.)")
+
+    def visualize_state_space(self):
+        self.state_space.visualize_graph()
 
     @property
     def max_time(self) -> int:
@@ -74,15 +77,34 @@ class Project:
 
     def __repr__(self):
         if len(self.task_dict) < 10:
-            add_str: str = f"and number of topological orderings {self.n_topological_orderings} \n"
+            add_str: str = f"Number of topological orderings {self.n_topological_orderings}. \n"
         else:
             add_str: str = ""
+
+        task_dict_array = [
+            ["Task #", "Dependencies", "Distribution", "Avg duration", *[f"Req. {r.name}" for r in Resource]],
+        ]
+        for task in self.task_dict.values():
+            task_dict_array.append([
+                str(task.id),
+                str(task.minimal_dependencies).strip("[").strip("]"),
+                task.duration_distribution.name,
+                str(round(task.duration_distribution.average,3)),
+                *[str(task.resource_requirements.get(r,0)) for r in Resource]
+            ])
+
+        task_dict_repr = format_table(task_dict_array)
+
+        resource_cap_str = ", ".join([f"{r.name}: {v}" for r,v in self.resource_capacities.items()])
+
+        average_dur_str = str(round(self.average_duration,4))
+
         return (
             "-------------------------------------------- \n"
-                f"Project with tasks \n{self.task_dict} \n"
-                f"and resource capacities {self.resource_capacities} \n"
-                f"and average sum of durations {self.average_duration} \n"
-                f"and state space with {len(self.state_space.states)} states \n"
+                f"Project with tasks: \n{task_dict_repr} \n"
+                f"Resource capacities: ({resource_cap_str}), \n"
+                f"Sequential duration expectation {average_dur_str}, "
+                f"and state space of {len(self.state_space.states)} states.\n"
                 f"{add_str}"
             "-------------------------------------------- \n"
         )
