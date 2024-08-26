@@ -28,7 +28,7 @@ class Policy:
         self.docket: Dict[Union[int,float],List[int]] = {}
 
         # per task id (dict key), whether the task is completed
-        self.task_completion: Dict[int, bool] = {task_id: False for task_id in project.task_dict.keys()}
+        self.task_completion: Dict[int, bool] = {task.id: False for task in project.task_list}
 
         # per resource type (dict key), the current occupation of the resource
         self.resource_available_current: Dict[Resource,int] = {
@@ -56,7 +56,7 @@ class Policy:
             finished_task_ids: List[int] = self.future_task_finished.pop(self.time_step)
             for finished_task_id in finished_task_ids:
                 self.task_ids_finished_per_time.setdefault(self.time_step,[]).append(finished_task_id)
-                finished_task: Task = self.project.task_dict[finished_task_id]
+                finished_task: Task = self.project.task_list[finished_task_id]
                 for resource, requirement in finished_task.resource_requirements.items():
                     self.resource_available_current[resource] += requirement
                 self.task_completion[finished_task_id]: bool = True
@@ -64,7 +64,7 @@ class Policy:
 
         while (chosen_task_id := self.choose_task_id()) is not None:
             # choose a task to execute, and administer what happens when it starts, and set a time for it to finish
-            chosen_task = self.project.task_dict[chosen_task_id]
+            chosen_task = self.project.task_list[chosen_task_id]
             self.docket.setdefault(self.time_step,[]).append(chosen_task_id)
             chosen_task_finished = self.time_step + chosen_task.duration_realization()
             self.future_task_finished.setdefault(chosen_task_finished,[]).append(chosen_task_id)
@@ -81,7 +81,7 @@ class Policy:
         """Main logic of a policy: which task to select. Highest ranked task that can be executed."""
         for j,task_id in enumerate(self.policy):
             if not self.task_completion[task_id]:
-                task: Task = self.project.task_dict[task_id]
+                task: Task = self.project.task_list[task_id]
                 prerequisites: List[bool] = [
                     self.task_completion[dependency] for dependency in task.minimal_dependencies
                 ]
@@ -109,12 +109,12 @@ class Policy:
             for task_id in task_ids:
                 inverse_task_start_dict[task_id] = time
 
-        for id in self.project.task_dict.keys():
+        for id in range(len(self.project.task_list)):
 
             start_time_str = str_of_length(inverse_task_start_dict.get(id,'?'),5)
             finish_time_str = str_of_length(inverse_task_finish_dict.get(id,'?'),5)
 
-            prereq_str = str(self.project.task_dict[id].minimal_dependencies)
+            prereq_str = str(self.project.task_list[id].minimal_dependencies)
 
             suffix = f"| ({start_time_str},{finish_time_str}) | prereq: {prereq_str}"
             task_str = str_of_length(id, 5)+": |"

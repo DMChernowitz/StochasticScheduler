@@ -1,9 +1,8 @@
-from typing import Dict, List, TypeVar, Type
+from typing import Dict, List, TypeVar, Set
 
 from src.Objects import Task, Resource
 from src.config import Config
-from src.Generation import generate_task
-from src.utils import prune_dependencies, format_table
+from src.utils import format_table
 from src.StateSpace import StateSpace
 
 import networkx as nx
@@ -21,26 +20,25 @@ class Project:
     It is used by Policy and Experiment classes. They have methods that can carry out the project.
     """
 
-    def __init__(self, tasks: List[Task], resource_capacities: Dict[Resource, int]):
+    def __init__(self, task_list: List[Task], resource_capacities: Dict[Resource, int]):
         """Initialise a project with tasks and resource capacities.
         Also checks if the inputs are valid and constructs the state space.
 
-        :param tasks: A list of tasks, using the Task class.
+        :param task_list: A list of tasks, using the Task class.
             Tasks must have unique ids and dependencies: ids of other Tasks.
         :param resource_capacities: A dictionary with resources as keys and capacities as values:
             the total amount of each resource available concurrently.
         """
-        self.task_dict: Dict[int,Task] = {task.id: task for task in tasks}
-        if not len({task.id for task in tasks}) == len(tasks):
-            raise ValueError("Tasks must have unique ids")
+        self.task_list: List[Task] = sorted(task_list, key=lambda task: task.id)
         self.resource_capacities: Dict[Resource, int] = resource_capacities
 
         self.check_inputs()
+        self.prune_dependencies()
 
-        self.average_duration: float = sum([task.duration_distribution.average for task in tasks])
-        self.state_space: StateSpace = StateSpace(tasks, resource_capacities)
+        self.average_duration: float = sum([task.duration_distribution.average for task in task_list])
+        self.state_space: StateSpace = StateSpace(task_list, resource_capacities)
         average_quantile = 1-1/np.exp(1)
-        print(f"Creating project with {len(tasks)} tasks, "
+        print(f"Creating project with {len(task_list)} tasks, "
               f"running stochastic Dijkstra's on it to find optimal contigent policy. ")
         self.contingency_table = self.state_space.construct_shortest_path_length(decision_quantile=average_quantile)
 
@@ -56,12 +54,19 @@ class Project:
 
         Useful to upper bound the execution time of a policy.
         """
-        return sum([task.duration_distribution.max for task in self.task_dict.values()])+1
+        return sum([task.duration_distribution.max for task in self.task_list]) + 1
 
     def check_inputs(self):
         """Check if the inputs are valid, raising a ValueError if not."""
-        all_tasks = set(self.task_dict.keys())
-        for task in self.task_dict.values():
+        for h,task in enumerate(self.task_list):
+            if task.id != h:
+                raise ValueError(
+                    "Tasks should have sequential task ids from 0 to [# of tasks-1], without gaps. "
+                    f"However, the task with id {task.id} is at index {h}."
+                )
+
+        all_tasks = set(range(len(self.task_list)))
+        for task in self.task_list:
             if not set(task.dependencies).issubset(all_tasks):
                 missing_dependencies = set(task.dependencies) - all_tasks
                 raise ValueError(f"Dependencies must be valid task ids. "
@@ -70,13 +75,13 @@ class Project:
         for resource in Resource:
             if resource not in self.resource_capacities:
                 raise ValueError(f"Resource {resource} not in resource capacities")
-        for task_id,task in self.task_dict.items():
+        for task in self.task_list:
             for resource, requirement in task.resource_requirements.items():
                 if requirement > self.resource_capacities[resource]:
-                    raise ValueError(f"Task {task_id} requires more {resource} than ever available")
+                    raise ValueError(f"Task {task.id} requires more {resource} than ever available")
 
     def __repr__(self):
-        if len(self.task_dict) < 10:
+        if len(self.task_list) < 10:
             add_str: str = f"Number of topological orderings {self.n_topological_orderings}. \n"
         else:
             add_str: str = ""
@@ -84,7 +89,7 @@ class Project:
         task_dict_array = [
             ["Task #", "Dependencies", "Distribution", "Avg duration", *[f"Req. {r.name}" for r in Resource]],
         ]
-        for task in self.task_dict.values():
+        for task in self.task_list:
             task_dict_array.append([
                 str(task.id),
                 str(task.minimal_dependencies).strip("[").strip("]"),
@@ -114,7 +119,7 @@ class Project:
         """Create a project from a configuration object"""
 
         tasks: List[Task] = [
-            generate_task(
+            Task.generate_random(
                 task_id=n,
                 max_simultaneous_resources_required=config.max_simultaneous_resources_required,
                 min_days=(a := np.random.randint(1, config.min_days_range)),
@@ -122,7 +127,6 @@ class Project:
                 prob_type=config.prob_type
             ) for n in range(config.n_tasks)
         ]
-        prune_dependencies(tasks)
         resource_capacities = {Resource(n): config.resource_available for n in range(1, 1 + len(Resource))}
         return cls(tasks, resource_capacities)
 
@@ -136,6 +140,26 @@ class Project:
         """
         digraph = nx.DiGraph()
         digraph.add_edges_from(
-            [(dep, task_id) for task_id, task in self.task_dict.items() for dep in task.dependencies]
+            [(dep, task.id) for task in self.task_list for dep in task.dependencies]
         )
         return len(list(nx.all_topological_sorts(digraph)))
+
+    def prune_dependencies(self) -> None:
+        """Remove dependencies from tasks that are already dependencies of dependencies. """
+        full_dep_dict: Dict[int, List[int]] = {}
+        for task in self.task_list:
+            full_dep_dict[task.id] = task.dependencies.copy()
+            for dependency in task.dependencies:
+                for dependency_of_dependency in full_dep_dict[dependency]:
+                    if dependency_of_dependency not in full_dep_dict[task.id]:
+                        full_dep_dict[task.id].append(dependency_of_dependency)
+        for task in self.task_list:
+            task.full_dependencies = full_dep_dict[task.id]
+            dependencies_of_dependencies: Set[int] = {
+                dependency_of_dependency
+                for dependency in task.dependencies
+                for dependency_of_dependency in full_dep_dict[dependency]
+            }
+            task.minimal_dependencies = sorted(
+                [dependency for dependency in task.dependencies if dependency not in dependencies_of_dependencies]
+            )

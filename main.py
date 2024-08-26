@@ -10,7 +10,7 @@ if __name__ == '__main__':
 
     config: Config = Config()
 
-    print("Let's create a project check out it's state space!\n")
+    print("Let's create a project and check out its state space!\n")
 
     # execute the policy and show the results as an example
     project = Project.from_config(config)

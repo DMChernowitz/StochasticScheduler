@@ -2,9 +2,6 @@ from typing import List, Tuple, Dict, Set, Any
 
 import numpy as np
 
-from src.Objects import Task
-
-
 def str_of_length(s: Any, length: int) -> str:
     """Return a string of length length, padding with spaces if necessary"""
     _s = str(s)[:length]
@@ -21,27 +18,6 @@ def format_table(table: List[List[str]]) -> str:
     new_table.insert(1,hline)
     new_table.append(hline)
     return "| "+"|\n| ".join(new_table)+"|"
-
-
-def prune_dependencies(tasks: List[Task]) -> None:
-    """Remove dependencies that are already dependencies of dependencies"""
-    full_dep_dict: Dict[int, List[int]] = {}
-    for task in tasks:
-        full_dep_dict[task.id] = task.dependencies.copy()
-        for dependency in task.dependencies:
-            for dependency_of_dependency in full_dep_dict[dependency]:
-                if dependency_of_dependency not in full_dep_dict[task.id]:
-                    full_dep_dict[task.id].append(dependency_of_dependency)
-    for task in tasks:
-        task.full_dependencies = full_dep_dict[task.id]
-        dependencies_of_dependencies: Set[int] = {
-            dependency_of_dependency
-            for dependency in task.dependencies
-            for dependency_of_dependency in full_dep_dict[dependency]
-        }
-        task.minimal_dependencies = sorted(
-            [dependency for dependency in task.dependencies if dependency not in dependencies_of_dependencies]
-        )
 
 
 def binom(a,b):
