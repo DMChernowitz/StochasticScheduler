@@ -5,7 +5,7 @@ from src.Project import Project
 from src.config import Config
 
 import numpy as np
-from scipy import stats
+from statistics import NormalDist
 
 import matplotlib.pyplot as plt
 
@@ -69,7 +69,7 @@ class Experiment:
         for label, p, better_worse in zip(self.results_dict.keys(), *self.calculate_p_value()):
             better = "better" if better_worse else "worse"
             significant = "significantly" if p < 0.05 else "insignificantly"
-            print(f"Dijkstra is {significant} {better} than policy {label} with p-value {p}")
+            print(f"Dijkstra is {significant} {better} than policy {label} with p-value {round(p,5)}")
 
         averages: List[float] = []
         min_dur = min([min(results) for results in self.results_dict.values()])
@@ -119,17 +119,28 @@ class Experiment:
 
         # welch's t-test for each policy
         p_values = []
-        better_worse = []
+        dijkstra_wins = []
+
+        # For large N, the t distribution can be approximated by a normal distribution
+
+        normaldist = NormalDist()
+
         for static_average, static_variance in zip(static_averages, static_variances):
-            better_worse.append(static_average > dijkstra_average)
+            dijkstra_wins.append(static_average > dijkstra_average)
             n = Config.n_runs
             t = (dijkstra_average - static_average) / np.sqrt(static_variance/n + dijkstra_variance/n)
-            df = (static_variance + dijkstra_variance)**2 / (static_variance**2/(n-1) + dijkstra_variance**2/(n-1))
+            if not dijkstra_wins[-1]:
+                t = -t
+            p = normaldist.cdf(t)
+
+            # to improve accuracy, install scipy and use the following code instead of the line above
+            # df = (static_variance + dijkstra_variance)**2 / (static_variance**2/(n-1) + dijkstra_variance**2/(n-1))
+            # p = scipy.stats.t.cdf(t, df)
             # one-sided tailed test: only care if static is worse than dijkstra
-            p = stats.t.cdf(t, df)
+
             p_values.append(p)
 
-        return p_values, better_worse
+        return p_values, dijkstra_wins
 
 
 

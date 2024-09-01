@@ -229,8 +229,11 @@ class StateSpace:
         # by querying the initial state, we will recursively calculate the expected duration to reach all states
         self.expected_duration = self.dynamic_step(self.initial_state)
         if self.wait_is_faster_states:
-            print(f"It was faster to wait for a task to finish than "
-                  f"to start a new one from {len(self.wait_is_faster_states)} states.")
+            print("It was faster to wait for a task to finish than "
+                  f"to start a new one from {len(self.wait_is_faster_states)} out of {len(self.states)} states.")
+        else:
+            print(f"This project has {len(self.states)} states "
+                  "and it is always fastest to start at least one task when possible.")
 
         return self.contingency_table
 

@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Set, Any
+from typing import List, Tuple, Union, Any
 
 import numpy as np
 
@@ -27,6 +27,40 @@ def binom(a,b):
         r //= i+1
     return r
 
+
+class HypoExponential:
+    def __init__(self, lambdas: List[float]):
+        if len(set(lambdas)) != len(lambdas):
+            raise ValueError("Lambdas must be distinct")
+        self.lambdas = np.array(lambdas, dtype=float)
+        self.n = len(lambdas)
+        self.mean = sum(1/self.lambdas)
+        self.variance = sum(self.lambdas**-2)
+
+        dif = self.lambdas[:,np.newaxis] - self.lambdas[np.newaxis,:] + np.eye(self.n)
+        # precompute the weights for the distribution
+        self.Ws = np.prod(self.lambdas[:,np.newaxis]/dif, axis=0)
+
+    def __call__(self, x: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+        if isinstance(x, np.ndarray):
+            return np.sum(self.Ws[np.newaxis,:] * np.exp(-self.lambdas[np.newaxis,:] * x[:,np.newaxis]), axis=1)
+        return sum(self.Ws * np.exp(-self.lambdas * x))
+
+
+class Erlang:
+    def __init__(self, k: int, lam: float):
+        self.k = k
+        self.lam = lam
+        self.mean = k/lam
+        self.variance = k/lam**2
+
+        # precompute the constant for the distribution
+        self.C = lam**k/np.math.factorial(k-1)
+
+    def __call__(self, x: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+        return self.C * x**(self.k-1) * np.exp(-self.lam * x)
+
+
 def hypo_exponential(x: float, lambdas: List[float]) -> float:
     y = 0
     n = len(lambdas)
@@ -38,6 +72,7 @@ def hypo_exponential(x: float, lambdas: List[float]) -> float:
             W *= lambdas[j] / (lambdas[j] - lambdas[i])
         y += W * lambdas[i] * np.exp(-lambdas[i] * x)
     return y
+
 
 def erlang_distribution(x: float, k: int, lam: float) -> float:
     return (lam**k * x**(k-1) * np.exp(-lam * x)) / np.math.factorial(k-1)
@@ -61,7 +96,16 @@ def erlang_closest_to_log_normal(mu: float, sigma: float) -> Tuple[int, float]:
     return k, lam
 
 
-def log_normal_to_erlang(mu, sigma):
-    k = int(np.round(1/(np.exp(sigma**2)-1)))
-    lam = np.exp(-mu-sigma**2/2)/(np.exp(sigma**2)-1)
+def moments_to_erlang(mu: float, var: float) -> Tuple[int, float]:
+    """Get the integer k and lambda for an Erlang distribution with given mean and variance.
+
+    mu = k/lambda
+    var = k/lambda^2
+    """
+    # first get the closest integer k > 1, as physical tasks never have the largest probability density at 0
+    k = max(2,round(mu**2 / var))
+
+    # then get the lambda that fits the mean best
+    lam = k / mu
     return k, lam
+

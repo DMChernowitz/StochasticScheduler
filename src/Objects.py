@@ -107,7 +107,7 @@ class IntProbabilityDistribution:
                 raise ValueError("Values must be in increasing order")
         self._values = values
         self._probabilities = probabilities
-        self._finish_prob_dict = self._prob_finish_at()
+        self._finish_prob_dict = self._get_conditional_finish_probs()
         self.name = "Int Discrete"
 
     @property
@@ -149,7 +149,7 @@ class IntProbabilityDistribution:
     def realization(self) -> int:
         return np.random.choice(self.values, p=self.probabilities)
 
-    def _prob_finish_at(self) -> Dict[int,float]:
+    def _get_conditional_finish_probs(self) -> Dict[int, float]:
         """Pre-compute the probability of finishing at time, given that it did not finish before."""
         finish_prob_dict: Dict[int,float] = {}
         remaining_prob: float = 1.
