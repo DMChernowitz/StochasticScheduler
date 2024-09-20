@@ -122,9 +122,10 @@ class Project:
             Task.generate_random(
                 task_id=n,
                 max_simultaneous_resources_required=config.max_simultaneous_resources_required,
-                min_days=(a := np.random.randint(1, config.min_days_range)),
-                max_days=a + np.random.randint(1, config.max_days_range),
-                prob_type=config.prob_type
+                duration_average_range=config.duration_average_range,
+                duration_variance_range=config.duration_variance_range,
+                prob_type=config.prob_type,
+                max_stages=config.max_stages
             ) for n in range(config.n_tasks)
         ]
         resource_capacities = {Resource(n): config.resource_available for n in range(1, 1 + len(Resource))}

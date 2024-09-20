@@ -1,4 +1,4 @@
-from typing import Dict, List, Union, TypeVar, Literal
+from typing import Dict, List, Union, TypeVar, Literal, Tuple
 from enum import Enum, auto
 from abc import ABC, abstractmethod
 
@@ -6,7 +6,7 @@ import numpy as np
 
 from src.config import Config
 
-from src.utils import binom
+from src.utils import binom, moments_to_erlang
 
 T = TypeVar("T", bound="Task")
 
@@ -172,7 +172,8 @@ class Task:
             task_id: int,
             resource_requirements: Dict[Resource, int],
             duration_distribution: IntProbabilityDistribution,
-            dependencies: List[int]
+            dependencies: List[int],
+            stages: int = 1
     ):
         """Initialise a task with id, resource requirements, type of distribution for duration, and dependencies.
 
@@ -180,13 +181,23 @@ class Task:
         :param resource_requirements: Dictionary with resources as keys and required amount of that resource as values.
         :param duration_distribution: Probabilistic distribution of the duration of the task.
         :param dependencies: List of task ids that must be completed before this task can start.
+        :param stages: Number of times the duration of the task must pass before it is completed.
+            Allows for modelling with an Erlang distribution, which does not have the memoryless property, and has
+            A nonzero mode. Default is 1, which is the exponential distribution.
         """
+        if stages < 1:
+            raise ValueError(f"Task must have at least one stage. Got {stages}.")
+        if stages > 8:
+            raise ValueError(f"Task should have at most 8 stages. Got {stages}.")
+
         self.id: int = task_id
         self.dependencies: List[int] = sorted(dependencies)
         self.resource_requirements: Dict[Resource, int] = resource_requirements
         self.duration_distribution: Union[IntProbabilityDistribution,ExponentialDistribution] = duration_distribution
         self.minimal_dependencies: Union[None,List[int]] = None
         self.full_dependencies: Union[None,List[int]] = None
+        self.stages: int = stages
+        self.current_stage: int = 0
 
     def __repr__(self):
         return (f"Task {self.id} \n"
@@ -196,8 +207,19 @@ class Task:
                 f"and duration {self.duration_distribution}\n"
                 )
 
+    def activate(self):
+        """Start performing the task."""
+        if self.current_stage != 0:
+            raise ValueError("Cannot activate a task that's alreafy started")
+        self.current_stage = 1
+
     def duration_realization(self) -> int:
-        """Sample the distribution of the task and return a value with probability according to the distribution."""
+        """Sample the distribution of the task and return a value with probability according to the distribution.
+
+        This also progresses the task to the next stage."""
+        if self.current_stage > self.stages:
+            raise ValueError("Task already finished")
+        self.current_stage += 1
         return self.duration_distribution.realization()
 
     def enough_resources(self, resources_available: Dict[Resource, int]) -> bool:
@@ -243,9 +265,10 @@ class Task:
             max_dependencies: int = 5,
             resource_types: Union[int, List[Resource]] = 2,
             max_simultaneous_resources_required: int = 10,
-            min_days: int = 0,
-            max_days: int = 10,
-            prob_type: Literal["uniform", "binomial", "random"] = "uniform"
+            duration_average_range: Tuple[int, int] = (2, 10),
+            duration_variance_range: Tuple[int, int] = (1, 4),
+            prob_type: Literal["uniform", "binomial", "random", "exponential", "erlang"] = "exponential",
+            max_stages: int = 5
     ) -> T:
         """
         Generate a task with random resource requirements and duration.
@@ -256,15 +279,21 @@ class Task:
         :param max_dependencies: maximum number of dependencies randomly chosen
         :param resource_types: number of resource types or list of resource types
         :param max_simultaneous_resources_required: maximum number of resources required
-        :param min_days: minimum duration in days
-        :param max_days: maximum duration in days
+        :param duration_average_range: range of average duration
+        :param duration_variance_range: range of variance of duration
         :param prob_type: type of probability distribution for duration
+        :param max_stages: maximum number of stages for any task
         :return: task object
         """
         if isinstance(resource_types, int):
             resource_types: List[Resource] = list(np.random.choice(Resource, resource_types, replace=False))
 
-        days: List[int] = list(range(min_days, max_days + 1))
+        avg_days = np.random.randint(*duration_average_range)
+        var_days = np.random.randint(*duration_variance_range)
+        min_days = max(1, avg_days - var_days)
+        max_days = avg_days + var_days
+        days = list(range(min_days, max_days + 1))
+        stages = np.random.randint(1, max_stages + 1)
 
         match prob_type:
             case "uniform":
@@ -288,6 +317,20 @@ class Task:
             case "exponential":
                 duration_distribution: ExponentialDistribution = ExponentialDistribution(
                     1 / np.random.uniform(max_days - min_days + 1))
+            case "erlang":
+                # use a separate logic for Erlang distribution
+                mu, var, attempts = 10,1,0
+                while mu ** 2 / var > 5.4:  # will become the number of stages.
+                    mu = np.random.uniform(*duration_average_range)
+                    var = np.random.uniform(*duration_variance_range)
+                    attempts += 1
+                    if attempts > 1000:
+                        raise ValueError(
+                            "Distribution of average and variance producing Erlang tasks with too many stages."
+                        )
+                stages, lam = moments_to_erlang(mu=mu, var=var)
+                stages = min(5, max_stages)
+                duration_distribution: ExponentialDistribution = ExponentialDistribution(lam=lam)
             case other:
                 raise ValueError(f"Probability type {other} not recognized")
 
@@ -308,6 +351,12 @@ class Task:
             else:
                 dependencies: List[int] = []
 
-        return cls(task_id, resource_requirements, duration_distribution, dependencies)
+        return cls(
+            task_id=task_id,
+            resource_requirements=resource_requirements,
+            duration_distribution=duration_distribution,
+            dependencies=dependencies,
+            stages=stages
+        )
 
 

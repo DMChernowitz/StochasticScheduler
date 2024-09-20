@@ -77,8 +77,10 @@ def hypo_exponential(x: float, lambdas: List[float]) -> float:
 def erlang_distribution(x: float, k: int, lam: float) -> float:
     return (lam**k * x**(k-1) * np.exp(-lam * x)) / np.math.factorial(k-1)
 
+
 def log_normal(x: float, mu: float, sigma: float) -> float:
     return np.exp(-0.5 * ((np.log(x) - mu) / sigma)**2) / (x * sigma * np.sqrt(2 * np.pi))
+
 
 def log_normal_mean(mu: float, sigma: float) -> float:
     return np.exp(mu + sigma**2 / 2)
@@ -102,8 +104,8 @@ def moments_to_erlang(mu: float, var: float) -> Tuple[int, float]:
     mu = k/lambda
     var = k/lambda^2
     """
-    # first get the closest integer k > 1, as physical tasks never have the largest probability density at 0
-    k = max(2,round(mu**2 / var))
+    # first get the closest integer k > 1, as physical tasks never have the mode at 0
+    k = max(2, round(mu**2 / var))
 
     # then get the lambda that fits the mean best
     lam = k / mu

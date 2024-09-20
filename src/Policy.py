@@ -6,6 +6,7 @@ from src.StateSpace import State
 
 from src.utils import str_of_length
 
+
 class Policy:
 
     def __init__(self, project: Project, policy: List[int]):
@@ -19,10 +20,10 @@ class Policy:
         self.project: Project = project
 
         # per time, list of tasks that are completed on that timestep
-        self.future_task_finished: Dict[Union[int,float],List[int]] = {}
+        self.future_task_progress: Dict[Union[int, float], List[int]] = {}
 
         # all tasks finished per time
-        self.task_ids_finished_per_time: Dict[Union[int,float],List[int]] = {}
+        self.task_ids_progressed_per_time: Dict[Union[int, float], List[int]] = {}
 
         # per time, list of tasks that (are planned to) start
         self.docket: Dict[Union[int,float],List[int]] = {}
@@ -47,30 +48,37 @@ class Policy:
             self.evolve()
         return self.time_step
 
+    #TODO: adapt to tasks with stages
     def evolve(self):
         """Execute one time step of the policy"""
-        if self.future_task_finished != {}:
+        if self.future_task_progress != {}:
             # Move forward in time to the next task that finishes
             # and administer what happens when it finishes
-            self.time_step: float = min(self.future_task_finished.keys())
-            finished_task_ids: List[int] = self.future_task_finished.pop(self.time_step)
-            for finished_task_id in finished_task_ids:
-                self.task_ids_finished_per_time.setdefault(self.time_step,[]).append(finished_task_id)
-                finished_task: Task = self.project.task_list[finished_task_id]
-                for resource, requirement in finished_task.resource_requirements.items():
-                    self.resource_available_current[resource] += requirement
-                self.task_completion[finished_task_id]: bool = True
-                self.state_sequence.append((self.time_step,self.state_sequence[-1][1].finish_task(finished_task_id)))
+            self.time_step: float = min(self.future_task_progress.keys())
+            progressed_task_ids: List[int] = self.future_task_progress.pop(self.time_step)
+            current_state = self.state_sequence[-1][1]
+            for progressed_task_id in progressed_task_ids:
+                self.task_ids_progressed_per_time.setdefault(self.time_step, []).append(progressed_task_id)
+                next_state = current_state.progress_task(progressed_task_id)
+                progressed_task: Task = self.project.task_list[progressed_task_id]
+                if next_state.task_complete(progressed_task_id):
+                    for resource, requirement in progressed_task.resource_requirements.items():
+                        self.resource_available_current[resource] += requirement
+                    self.task_completion[progressed_task_id]: bool = True
+                else:
+                    task_next_stage = self.time_step + progressed_task.duration_realization()
+                    self.future_task_progress.setdefault(task_next_stage, []).append(progressed_task_id)
+                self.state_sequence.append((self.time_step,next_state))
 
         while (chosen_task_id := self.choose_task_id()) is not None:
             # choose a task to execute, and administer what happens when it starts, and set a time for it to finish
             chosen_task = self.project.task_list[chosen_task_id]
             self.docket.setdefault(self.time_step,[]).append(chosen_task_id)
             chosen_task_finished = self.time_step + chosen_task.duration_realization()
-            self.future_task_finished.setdefault(chosen_task_finished,[]).append(chosen_task_id)
+            self.future_task_progress.setdefault(chosen_task_finished, []).append(chosen_task_id)
             for resource, requirement in chosen_task.resource_requirements.items():
                 self.resource_available_current[resource] -= requirement
-            self.state_sequence.append((self.time_step,self.state_sequence[-1][1].start_task(chosen_task_id)))
+            self.state_sequence.append((self.time_step,self.state_sequence[-1][1].progress_task(chosen_task_id)))
 
         self.resources_snapshots[self.time_step]: Dict[Resource, int] = {
             resource: self.project.resource_capacities[resource] - self.resource_available_current[resource]
@@ -93,7 +101,7 @@ class Policy:
     def get_gant_str(self, n_times: int =100) -> str:
         """Return a string representation of the gantt chart of the policy, after execution."""
 
-        timescale = max(self.task_ids_finished_per_time.keys(), default=0)
+        timescale = max(self.task_ids_progressed_per_time.keys(), default=0)
         dt = timescale / n_times
 
         gantt_list = ["Task : |" + " " * n_times + "| (start, end ) | prereq: [ids]", "."*(n_times+39)]
@@ -101,7 +109,7 @@ class Policy:
         inverse_task_start_dict: Dict[int,Union[int,float]] = {}
         inverse_task_finish_dict: Dict[int,Union[int,float]] = {}
 
-        for time,task_ids in self.task_ids_finished_per_time.items():
+        for time,task_ids in self.task_ids_progressed_per_time.items():
             for task_id in task_ids:
                 inverse_task_finish_dict[task_id] = time
 
@@ -134,7 +142,7 @@ class Policy:
         return "\n".join(gantt_list)
 
     def get_time_axis(self, n_times: int) -> str:
-        timescale = max(self.task_ids_finished_per_time.keys(), default=0)
+        timescale = max(self.task_ids_progressed_per_time.keys(), default=0)
         return "Time : 0 " + "." * (n_times - 4) + " " + str(timescale)[:5]
 
     def get_resource_chart(self, n_times: int = 100) -> str:

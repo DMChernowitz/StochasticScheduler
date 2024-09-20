@@ -20,39 +20,37 @@ import numpy as np
 
 # Erlang has the smallest variance of all hypoexponentials with the same mean.
 
-from src.utils import HypoExponential, Erlang
-import matplotlib.pyplot as plt
+# from src.utils import HypoExponential, Erlang
+# import matplotlib.pyplot as plt
+
+# if __name__ == '__main__':
+#
+#     lambdas = [3,4,5,0.5]
+#
+#     he = HypoExponential(lambdas)
+#     x = np.linspace(0,5,100)
+#     he_area = sum(he(x))*(x[1]-x[0])
+#     print(f"HE Area: {he_area}")
+#
+#     k = len(lambdas)
+#
+#     # get the same mean:
+#     # k/lam = he.mean
+#     lam = k/he.mean
+#     print(f"Mean: {he.mean}, k: {k}, lam: {lam}")
+#     print(f"HE variance: {he.variance}, Erlang variance: {k/lam**2}")
+#
+#     er = Erlang(k, lam)
+#
+#     er_area = sum(er(x))*(x[1]-x[0])
+#     print(f"Erlang Area: {er_area}")
+#
+#     plt.plot(x, he(x), label="Hypoexponential")
+#     plt.plot(x, er(x), label="Erlang")
+#     plt.legend()
+#     plt.show()
 
 if __name__ == '__main__':
-
-    lambdas = [3,4,5,0.5]
-
-    he = HypoExponential(lambdas)
-    x = np.linspace(0,5,100)
-    he_area = sum(he(x))*(x[1]-x[0])
-    print(f"HE Area: {he_area}")
-
-    k = len(lambdas)
-
-    # get the same mean:
-    # k/lam = he.mean
-    lam = k/he.mean
-    print(f"Mean: {he.mean}, k: {k}, lam: {lam}")
-    print(f"HE variance: {he.variance}, Erlang variance: {k/lam**2}")
-
-    er = Erlang(k, lam)
-
-    er_area = sum(er(x))*(x[1]-x[0])
-    print(f"Erlang Area: {er_area}")
-
-    plt.plot(x, he(x), label="Hypoexponential")
-    plt.plot(x, er(x), label="Erlang")
-    plt.legend()
-    plt.show()
-
-
-
-if __name__ == '__main__' and False:
 
     config: Config = Config()
 
