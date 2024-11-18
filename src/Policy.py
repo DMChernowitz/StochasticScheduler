@@ -215,7 +215,7 @@ class DynamicPolicy:
                 self.state_sequence.append((self.time_step,self.current_state.copy()))
             else:
                 # start a task
-                self.current_state: State = self.current_state.start_task(task_start_id)
+                self.current_state: State = self.current_state.progress_task(task_start_id)
                 self.state_sequence.append((self.time_step,self.current_state.copy()))
         return self.time_step
 

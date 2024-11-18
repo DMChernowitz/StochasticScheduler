@@ -217,7 +217,7 @@ class Task:
         """Sample the distribution of the task and return a value with probability according to the distribution.
 
         This also progresses the task to the next stage."""
-        if self.current_stage > self.stages:
+        if self.current_stage >= self.stages:
             raise ValueError("Task already finished")
         self.current_stage += 1
         return self.duration_distribution.realization()

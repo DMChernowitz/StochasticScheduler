@@ -131,6 +131,12 @@ class Project:
         resource_capacities = {Resource(n): config.resource_available for n in range(1, 1 + len(Resource))}
         return cls(tasks, resource_capacities)
 
+    def reset_task_stages(self) -> T:
+        """Reset the stages of all tasks to 0"""
+        for task in self.task_list:
+            task.current_stage = 0
+        return self
+
     @property
     def n_topological_orderings(self) -> int:
         """Return the number of topological orderings of the project's tasks.

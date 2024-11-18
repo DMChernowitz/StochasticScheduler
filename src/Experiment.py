@@ -41,7 +41,7 @@ class Experiment:
             self.results_dict[label]: List[Union[int,float]] = []
 
             for n in range(self.config.n_runs):
-                policy = Policy(self.project, list(policy_list))
+                policy = Policy(self.project.reset_task_stages(), list(policy_list))
 
                 timestep_finished = policy.execute()
                 # print(f"Run {n} finished after {timestep_finished} timesteps with policy {label}")
