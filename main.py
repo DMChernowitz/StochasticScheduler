@@ -5,7 +5,6 @@ from src.Project import Project
 
 import numpy as np
 
-# TODO: include option in contingency table that always requires starting certain tasks after others finish.
 # Call these child-tasks, that always follow their parent tasks.
 # A task then points to a child task.. pointing forward instead of backward with dependencies.
 # child tasks must have the same lambdas, dependencies...

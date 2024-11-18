@@ -48,7 +48,6 @@ class Policy:
             self.evolve()
         return self.time_step
 
-    #TODO: adapt to tasks with stages
     def evolve(self):
         """Execute one time step of the policy"""
         if self.future_task_progress != {}:
@@ -86,7 +85,11 @@ class Policy:
         }
 
     def choose_task_id(self) -> Union[int,None]:
-        """Main logic of a policy: which task to select. Highest ranked task that can be executed."""
+        """Main logic of a policy: which task to select. Highest ranked task that can be executed.
+
+        Returns the task id of the task that is chosen to be executed, or None if no task can be executed.
+        returned task is removed from the policy, the 'to-do list'.
+        """
         for j,task_id in enumerate(self.policy):
             if not self.task_completion[task_id]:
                 task: Task = self.project.task_list[task_id]
@@ -98,7 +101,7 @@ class Policy:
                     return self.policy.pop(j)
         return None
 
-    def get_gant_str(self, n_times: int =100) -> str:
+    def get_gant_str(self, n_times: int = 100) -> str:
         """Return a string representation of the gantt chart of the policy, after execution."""
 
         timescale = max(self.task_ids_progressed_per_time.keys(), default=0)
