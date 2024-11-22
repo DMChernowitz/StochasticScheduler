@@ -5,10 +5,10 @@ import random
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.collections import PatchCollection
 from matplotlib import patches as mpatches
 
 from src.Objects import Task, Resource, ExponentialDistribution
+from src.utils import make_arrow_coords, HandlerEllipse, HandlerArrow
 
 S = TypeVar("S", bound="State")
 MS = TypeVar("MS", bound="MetaState")
@@ -25,7 +25,7 @@ class State:
     # The extreme stages are 0 and f, all other stages are 'active' and have a rank of 1
     rank_mapping = {
         0: 0,
-        "f": 2,
+        finished: 2,
     }
 
     def __init__(
@@ -49,6 +49,9 @@ class State:
         """
         self.current_stages = tuple(current_stages)
         self.total_stages = tuple(total_stages)
+
+        # initialize the lexicographic position of the state, as a unique identifier inside its state space
+        self._lexicographic_position = None
 
         if error_check:
             self._error_check()
@@ -79,23 +82,11 @@ class State:
             new_stati[task_id] = self.finished
         else:
             new_stati[task_id] += 1
-        return State(total_stages=self.total_stages, current_stages=new_stati, error_check=False)
-
-    # def finish_task(self, task_id: int) -> S:
-    #     """Return the state that results from finishing a task at a given index."""
-    #     if self.stati[task_id] != Stati.active.value:
-    #         raise ValueError("task must be active to be finished")
-    #     new_stati = list(self.stati)
-    #     new_stati[task_id] = Stati.finished.value
-    #     return State(new_stati)
-    #
-    # def start_task(self, task_id: int) -> S:
-    #     """Return the state that results from starting a task at a given index."""
-    #     if self.stati[task_id] != Stati.waiting.value:
-    #         raise ValueError("task must be waiting to be started")
-    #     new_stati = list(self.stati)
-    #     new_stati[task_id] = Stati.active.value
-    #     return State(new_stati)
+        return State(
+            total_stages=self.total_stages,
+            current_stages=new_stati,
+            error_check=False
+        )
 
     def copy(self):
         """Return a copy of the state."""
@@ -131,9 +122,15 @@ class State:
         return self.current_stages == other.current_stages and self.total_stages == other.total_stages
 
     def __repr__(self):
-        extremes = [0,self.finished]
+        extremes = [self.finished]
         str_rep = [str(c) if c in extremes else f"{c}/{t}" for c, t in zip(self.current_stages, self.total_stages)]
-        return "<"+"][".join(str_rep)+">"
+        return "<"+"|".join(str_rep)+">"
+
+    def __lt__(self, other):
+        return self.lexicographic_position < other.lexicographic_position
+
+    def __gt__(self, other):
+        return self.lexicographic_position > other.lexicographic_position
 
     @property
     def rank(self) -> int:
@@ -152,6 +149,23 @@ class State:
                 sum(task_list[h].resource_requirements.get(resource, 0) for h in currently_active)
             for resource in Resource
         }
+
+    @property
+    def lexicographic_position(self) -> int:
+        """Return the unique lexicographic position of the state inside its state space.
+
+        Initial state is 0, and the final state is the largest one.
+        """
+        if self._lexicographic_position is None:
+            self._lexicographic_position = 0
+            running_digit_size = 1
+            for current_stage, max_stage in zip(
+                    self.current_stages,
+                    self.total_stages):
+                current_digit = max_stage + 1 if current_stage == self.finished else current_stage
+                self._lexicographic_position += current_digit * running_digit_size
+                running_digit_size *= max_stage + 1
+        return self._lexicographic_position
 
 
 class StateSpace:
@@ -199,9 +213,12 @@ class StateSpace:
         # set the decision rule for timing:
         self.decision_quantile: Union[float, None] = None
         self.expected_duration: Union[float, None] = None
+
+        # initialize some graph structures
         self.contingency_table: Dict[State, Union[int, None]] = {}
         self.metagraph: Dict[MetaState, Dict[str, List[Tuple[int, MetaState]]]] = {}
         self.states_per_metastate: Dict[MetaState, List[State]] = {}
+        self.meta_contingency_table: Dict[MetaState, List[int]] = {}
 
     @property
     def states(self) -> Tuple[State]:
@@ -435,138 +452,220 @@ class StateSpace:
             self.states_per_metastate.setdefault(metastate, []).append(state)
 
             if metastate not in self.metagraph:
-                self.metagraph[metastate]: Dict[str, Set[Tuple[int, MetaState]]] = {"s": [], "f": []}
+                self.metagraph[metastate]: Dict[str, Set[Tuple[int, MetaState]]] = {
+                    self.start: [],
+                    self.finish: []
+                }
             # don't need to consider progress transitions: same metastate
-            for transition_type in ["s","f"]:
+            for transition_type in [self.start, self.finish]:
                 for task_id, next_state in self.graph[state][transition_type]:
                     next_metastate = MetaState.from_state(next_state)
                     next_tuple = (task_id, next_metastate)
                     if next_tuple not in self.metagraph[metastate][transition_type]:
                         self.metagraph[metastate][transition_type].append(next_tuple)
 
+        # now convert the contingency table:
+        for state, task_id in self.contingency_table.items():
+            local_contingents = self.meta_contingency_table.setdefault(MetaState.from_state(state), [])
+            if task_id is None:
+                continue
+            local_contingents.append(task_id)
+
     def visualize_graph(
             self,
-            metastate_mode: bool = True
+            metastate_mode: bool = True,
+            rich_annotations: bool = False,
     ) -> None:
-        """Create a graph of the graph.
+        """Create a graph of the state space, with states as vertices and transitions as edges.
+
+        The states are ordered from left to right by the progress of project completion. Whenever a
+        task is started or finished, the corresponding state moves one column to the right. There are then
+        2*N+1 columns for N tasks. The initial state is on the left, the final state on the right.
+
+        The states are stacked vertically in a column, so the height is a heuristic for the number of different
+        paths (choices) that can be taken at that point in the project.
+
+        Arrows indicate transitions, and they cannot point backwards, or form loops. Red for starting a task,
+        blue for finishing a task.
 
         :param metastate_mode: If True, group states with the same active tasks in the same metastate.
-            If False, show all states separately (can be convoluted for large projects).
+            If False, a single task in different stages implies separately plotted states
+            (can be convoluted for even medium-sized projects).
+            If False, green arrows connect states that differ by a single tasks progressing through its stages.
+        :param rich_annotations: If True, annotate arrows with which task is changing status, and fills the states with
+            a flag of idle, active, or finished tasks, in metastate mode. Inadviseable for large projects.
+            if metastate_mode is False, the stage of each task is shown.
+            if False, the number of states in the metastate is printed, or if metastate_mode is False, simply 's'.
         """
 
         if metastate_mode:
-            self.get_metastate_graph()
+            self.get_metastate_graph()  # construct the graph with vertices collections of similar states
             Atom = MetaState  # the smallest class to group on
             graph = self.metagraph
-            transition_types = [t for t in self.transition_types if t != "p"]
-            initial_state = MetaState.from_state(self.initial_state)
-            final_state = MetaState.from_state(self.final_state)
+            transition_types = [t for t in self.transition_types if t != self.progress]
+            def optimal_contingent(state: MetaState, task_id: int) -> bool:
+                return task_id in self.meta_contingency_table[state]
         else:
             Atom = State  # the smallest class to group on
             graph = self.graph
             transition_types = self.transition_types
-            initial_state = self.initial_state
-            final_state = self.final_state
+            def optimal_contingent(state: State, task_id: int) -> bool:
+                return task_id == self.contingency_table[state]
 
-        state_ranks: Dict[int, List[Atom]] = {k: [] for k in range(2*len(self.tasks)+1)}
+        state_ranks: Dict[int, List[Atom]] = {k: [] for k in range(2*len(self.tasks)+1)}  # initialize the ranks
 
         for state in graph.keys():
             state_ranks[state.rank].append(state)
 
-        # see how many states map to each state in the graph
+        # We want to reduce the presence of arrows pointing steeply up and down, by choosing a smart
+        # layout of the states. We will sort the states in a column by the average height of the states
+        # in the previous column that point to them.
+        # This allows for a single pass heuristic that will hopefully return a reasonable vertical ordering.
+        # For this, we must first see how many states map to each state in the graph
         inverse_state_graph: Dict[Atom, List[Atom]] = {state: [] for state in graph.keys()}
         for state, transitions in graph.items():
-            for _, next_state in transitions["s"] + transitions["f"]:
+            for _, next_state in transitions[self.start] + transitions[self.finish]:
                 inverse_state_graph[next_state].append(state)
 
         # get position of each state on the canvas:
         state_positions: Dict[Atom, Tuple[int, int]] = {}
 
-        def avg_pos_precursors(_state) -> float:
-            if not inverse_state_graph[_state]:
-                return 0
-            return sum(state_positions[prev][1] for prev in inverse_state_graph[_state]) / len(inverse_state_graph[_state])
+        def avg_pos_precursors(_state) -> Tuple[float, int]:
+            isg = inverse_state_graph[_state]
+            if not isg:
+                return 0, _state.lexicographic_position
+            av_pos = sum(state_positions[prev][1] for prev in isg) / len(isg)
+            return av_pos, _state.lexicographic_position
 
         for rank in state_ranks.keys():
-            # heuristic: sort by the average height of the states that will point to this state
+            # heuristic: sort by the average height of the precursors
             # hopefully will make arrows as horizontal as possible
             states = sorted(
                 state_ranks[rank],
                 key=avg_pos_precursors
             )
             for i, state in enumerate(states):
-                state_positions[state] = (rank, i)
+                state_positions[state] = (rank, i+1)
 
-        def make_arrow(start_pos: Tuple[int, int], end_pos: Tuple[int, int]) -> mpatches.Arrow:
-            return mpatches.Arrow(
-                start_pos[0],  # x
-                start_pos[1],  # y
-                end_pos[0] - start_pos[0],  # dx
-                end_pos[1] - start_pos[1],  # dy
-                width=0.3,
-                alpha=0.5
-            )
+        transition_annotations: Dict[Tuple[float, float], str] = {}  # initialize the annotations
 
-        # create the line collection data for the transitions
+        # construct the arrows and their annotations
         sf_collections = {t: [] for t in transition_types}  # for the lines of task starting, finishing, progressing
+        contingent_starts = []  # position of arrows for the optimal starts per state
         for state, transitions in graph.items():
             for lab_letter in transition_types:
                 for task_id, next_state in transitions[lab_letter]:
-                    sf_collections[lab_letter].append(
-                        make_arrow(state_positions[state], state_positions[next_state])
-                    )
+                    arrow, (text_x,text_y) = make_arrow_coords(state_positions[state], state_positions[next_state])
+                    sf_collections[lab_letter].append(arrow)
+                    transition_annotations[(text_x, text_y)] = lab_letter+str(task_id)
+                    # check if arrow is contingency table choice, and if so, give it a different outline.
+                    if lab_letter == self.start and optimal_contingent(state, task_id):
+                        contingent_starts.append(len(sf_collections[lab_letter])-1)
 
         fig, ax = plt.subplots()
         ax.set_xlim(-1, 2*len(self.tasks)+1)
-        max_height = max(map(len, state_ranks.values()))
-        ax.set_ylim(-1, max_height)
+        max_height = max(v[1] for v in state_positions.values())+1
+        ax.set_ylim(0, max_height)
 
-        if (lsc := len(sf_collections["s"])) != len(sf_collections["f"]):
-            raise ValueError("There should be the same number of states starting and finishing in the total graph.")
+        assert len(sf_collections[self.start]) == len(sf_collections[self.finish]), "# start == # finish transitions"
 
-        pc = PatchCollection(
-            patches=sum([sf_collections[t] for t in transition_types], []),
-            color=["r"]*lsc+["b"]*lsc+([] if metastate_mode else ["g"]*len(sf_collections["p"]))
-        )
+        # draw the arrows
+        for t, col in zip(transition_types, ["m", "b", "g"]):
+            for h,arrow in enumerate(sf_collections[t]):
+                newcol = "r" if (t == self.start and h in contingent_starts) else col
+                ax.arrow(
+                    *arrow,
+                    head_width=0.1,
+                    head_length=0.1,
+                    ec=newcol,
+                    fc=newcol,
+                    lw=5,
+                    length_includes_head=True,
+                )
 
 
-        if metastate_mode:
-            sizes = [str(len(self.states_per_metastate[ms])) for ms in state_positions.keys()]
+
+        def suf_maker(x: Atom):
+            if metastate_mode:
+                return str(len(self.states_per_metastate[x]))
+            return self.start
+
+        if rich_annotations:
+
+            # If all metastates have exactly one constituent state (probably due to project config set without allowing
+            # multiple stages per task), don't clutter annotations by showing the number of states in each metastate.
+            variable_state_counts = not all([suf_maker(x) == "1" for x in state_positions.keys()])
+
+            def string_maker(x):
+                base_string = str(x)[1:-1]
+                if metastate_mode and variable_state_counts:
+                    return base_string + f" ({(suf_maker(x))})"
+                return base_string
+
+            bbox = dict(boxstyle="round", fc="0.8")
+            state_button_contents = map(string_maker, state_positions.keys())
+            for pos, label in transition_annotations.items():
+                ax.annotate(label, pos, bbox=bbox, fontsize=12,
+                            horizontalalignment='center',
+                            verticalalignment='center')
         else:
-            sizes = ["s"]*len(state_positions)
+            state_button_contents = map(suf_maker, state_positions.keys())
+
+        col_dict = {0: "cyan", 2*len(self.tasks): "yellow"}  # first and last column are initial and final states
 
         # plot the states as dots
-        #ax.scatter(*zip(*state_positions.values()), s=sizes, color="black")
-        for x, y, size in zip(*zip(*state_positions.values()), sizes):
-            if x == 0 or x == 2*len(self.tasks):
-                continue
-            ax.text(x, y, size,
-                    bbox={"boxstyle": "circle", "color": "grey"})
+        for x, y, button_content in zip(*zip(*state_positions.values()), state_button_contents):
+            ax.text(x, y, button_content,
+                    horizontalalignment='center',
+                    verticalalignment='center',
+                    bbox={
+                        "boxstyle": "circle",
+                        "facecolor": col_dict.get(x, "grey"),
+                        "edgecolor": "black"
+                    }
+                    )
 
-        for label,if_state,col in [("Initial", initial_state, "m"), ("Final", final_state, "y")]:
-            x,y = state_positions[if_state]
-            ax.text(x,y+max_height/20, label[0], fontsize=12)
-            ax.plot(x,y,marker="s",c=col, label=f"{label} State", markersize=10)
-
-        ax.add_collection(pc)
-
-        # access legend objects automatically created from data
-        handles, _ = plt.gca().get_legend_handles_labels()
+        if metastate_mode:
+            if rich_annotations:
+                label = "metastate" + (" (# states)" if variable_state_counts else "")
+            else:
+                label = "# states"
+        else:
+            label = "state"
 
         # create manual symbols for legend
-        handles.extend(
-            [mpatches.Arrow(0,0,1,0,color=c, label=lab) for c, lab in [("r", "start task"), ("b", "finish task")]]
-        )
-        label = "# states" if metastate_mode else "state"
-        if not metastate_mode:
-            handles.append(mpatches.Arrow(0,0,1,0,color="g", label="progress task"))
-        handles.append(mpatches.Circle((0,0),0.1,color="grey", label=label))
+        legend_handles = [
+            mpatches.Circle((0,0), 0.1, facecolor="grey", edgecolor="black"),
+            mpatches.Circle((0,0), 0.1, facecolor="cyan", edgecolor="black"),
+            mpatches.Circle((0,0), 0.1, facecolor="yellow", edgecolor="black"),
+            mpatches.Arrow(0,0,1,0, color="r"),
+            mpatches.Arrow(0,0,1,0, color="m"),
+            mpatches.Arrow(0,0,1,0, color="b"),
+        ]
+        legend_lables = [label,
+                         "initial state",
+                         "final state",
+                         "optimal start task",
+                         "alternative start task",
+                         "finish task"]
 
-        ax.legend(handles=handles)
+        if not metastate_mode:
+            legend_handles.append(mpatches.Arrow(0,0,1,0, color="g"))
+            legend_lables.append("progress task")
+
+        ax.legend(legend_handles,
+                  legend_lables,
+                  handler_map={
+                      mpatches.Circle: HandlerEllipse(),
+                      mpatches.Arrow: HandlerArrow()
+                  })
 
         # x label
         ax.set_xlabel("Progress in project execution")
         ax.set_ylabel("Number of possible states")
+        # set x and y ticks to only possible values
+        ax.set_yticks(range(1,max_height))
+        ax.set_xticks(range(2*len(self.tasks)+1))
         pref = "Meta" if metastate_mode else ""
         ax.set_title(f"{pref}State Space Transition Graph")
 
@@ -592,8 +691,17 @@ class MetaState:
         self.finished_states = tuple(sorted(finished_states))
         self.n_tasks = len(self.waiting_states) + len(self.active_states) + len(self.finished_states)
 
+        self.lexicographic_position: int = sum(3**i for i in active_states) + 2 * sum(3**i for i in finished_states)
+
     def __hash__(self):
         return hash((self.waiting_states, self.active_states, self.finished_states))
+
+    def __repr__(self):
+        string_list = [""]*self.n_tasks
+        for _symbol, _states in zip("IAF", [self.waiting_states, self.active_states, self.finished_states]):
+            for state in _states:
+                string_list[state] = _symbol
+        return "<"+"".join(string_list)+">"
 
     @classmethod
     def from_state(cls, state: State) -> MS:

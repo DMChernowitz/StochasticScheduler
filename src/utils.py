@@ -2,6 +2,9 @@ from typing import List, Tuple, Union, Any
 
 import numpy as np
 
+import matplotlib.patches as mpatches
+from matplotlib.legend_handler import HandlerPatch
+
 def str_of_length(s: Any, length: int) -> str:
     """Return a string of length length, padding with spaces if necessary"""
     _s = str(s)[:length]
@@ -110,4 +113,44 @@ def moments_to_erlang(mu: float, var: float) -> Tuple[int, float]:
     # then get the lambda that fits the mean best
     lam = k / mu
     return k, lam
+
+
+def make_arrow_coords(start_pos: Tuple[int, int], end_pos: Tuple[int, int]) -> Tuple[
+    Tuple[float, float, float, float], Tuple[float, float]]:
+    """Create an arrow from start_pos to end_pos. Used in the visualization of the state space graph."""
+    bub = 0.1
+    dx = end_pos[0] - start_pos[0]
+    dy = end_pos[1] - start_pos[1]
+    dx_margin = bub if dx > 0.5 else 0
+    if abs(dy) > 0.5:
+        dy_margin = bub if dy > 0.5 else -bub
+    else:
+        dy_margin = 0
+    arrow = (
+        start_pos[0] + dx_margin,  # x
+        start_pos[1] + dy_margin,  # y
+        dx - 2 * dx_margin,  # dx
+        dy - 2 * dy_margin,  # dy
+    )
+    return arrow, (start_pos[0] + 0.5 * dx, start_pos[1] + 0.5 * dy)
+
+class HandlerEllipse(HandlerPatch):
+    def create_artists(self, legend, orig_handle,
+                       xdescent, ydescent, width, height, fontsize, trans):
+        center = 0.5 * width - 0.5 * xdescent, 0.5 * height - 0.5 * ydescent
+        p = mpatches.Ellipse(xy=center, width=width + xdescent,
+                             height=height + ydescent)
+        self.update_prop(p, orig_handle, legend)
+        p.set_transform(trans)
+        return [p]
+
+
+class HandlerArrow(HandlerPatch):
+    def create_artists(self, legend, orig_handle,
+                       xdescent, ydescent, width, height, fontsize, trans):
+        p = mpatches.FancyArrow(0, 0.5*height, width, 0, width=3, head_width=height,
+                                head_length=0.5 * height, length_includes_head=True)
+        self.update_prop(p, orig_handle, legend)
+        p.set_transform(trans)
+        return [p]
 

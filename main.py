@@ -19,35 +19,29 @@ import numpy as np
 
 # Erlang has the smallest variance of all hypoexponentials with the same mean.
 
-# from src.utils import HypoExponential, Erlang
-# import matplotlib.pyplot as plt
+from src.utils import Erlang
+import matplotlib.pyplot as plt
 
-# if __name__ == '__main__':
-#
-#     lambdas = [3,4,5,0.5]
-#
-#     he = HypoExponential(lambdas)
-#     x = np.linspace(0,5,100)
-#     he_area = sum(he(x))*(x[1]-x[0])
-#     print(f"HE Area: {he_area}")
-#
-#     k = len(lambdas)
-#
-#     # get the same mean:
-#     # k/lam = he.mean
-#     lam = k/he.mean
-#     print(f"Mean: {he.mean}, k: {k}, lam: {lam}")
-#     print(f"HE variance: {he.variance}, Erlang variance: {k/lam**2}")
-#
-#     er = Erlang(k, lam)
-#
-#     er_area = sum(er(x))*(x[1]-x[0])
-#     print(f"Erlang Area: {er_area}")
-#
-#     plt.plot(x, he(x), label="Hypoexponential")
-#     plt.plot(x, er(x), label="Erlang")
-#     plt.legend()
-#     plt.show()
+if __name__ == '__main__':
+
+    lambdas = [5]
+
+    x = np.linspace(0, 2, 1000)
+
+    def exponential(x, lam: float) -> float:
+        return lam * np.exp(-lam * x)
+
+
+    for l in lambdas:
+        plt.plot(x, exponential(x, l), label=f"Exponential λ={l}", linestyle="--")
+        for k in [2, 5]:
+            er = Erlang(k, l)
+            plt.plot(x, er(x), label=f"Erlang k={k} λ={l}", lw=k)
+
+    plt.xlabel("Time between task start and finish")
+    plt.ylabel("Probability density")
+    plt.legend()
+    plt.show()
 
 if __name__ == '__main__':
 
@@ -59,7 +53,11 @@ if __name__ == '__main__':
     project = Project.from_config(config)
 
     # show a graph of the allowed transitions of the project
-    project.visualize_state_space()
+    project.visualize_state_space(metastate_mode=True, rich_annotations=True)
+
+    # print the contingency table
+    print("\n\n\n\n\nLet's see the contingency table of the project for CSDP!\n")
+    project.print_contingency_table()
 
     print("\n\n\n\n\nLet's carry out our project with a random policy as a demo")
 

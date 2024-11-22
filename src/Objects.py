@@ -229,7 +229,7 @@ class Task:
     @property
     def average_duration(self) -> float:
         """Return the average duration of the distribution of the task."""
-        return self.duration_distribution.average
+        return self.duration_distribution.average*self.stages
 
     @property
     def minimal_duration(self) -> int:
@@ -240,7 +240,7 @@ class Task:
         """
         if isinstance(self.duration_distribution, ExponentialDistribution):
             return 0
-        return min(self.duration_distribution.values)
+        return min(self.duration_distribution.values)*self.stages
 
     @property
     def maximal_duration(self) -> float:
@@ -251,9 +251,9 @@ class Task:
         for discrete distributions, this is the largest value that is explicitely in the support."""
         if isinstance(self.duration_distribution, ExponentialDistribution):
             return np.inf
-        return max(self.duration_distribution.values)
+        return max(self.duration_distribution.values)*self.stages
 
-    def quantile_duration(self, p: float) -> float:
+    def stage_quantile_duration(self, p: float) -> float:
         """Return the p-quantile of the distribution of the task."""
         return self.duration_distribution.quantile(p)
 
@@ -345,7 +345,7 @@ class Task:
             if task_id > 0:
                 dependencies: List[int] = list(np.random.choice(
                     range(task_id),
-                    np.random.randint(1, min(task_id + 1, max_dependencies + 1)),
+                    np.random.randint(0, min(task_id + 1, max_dependencies + 1)),
                     replace=False
                 ))
             else:
