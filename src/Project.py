@@ -1,9 +1,9 @@
 from typing import Dict, List, TypeVar, Set
 
 from src.Objects import Task, Resource
-from src.config import Config
+from src.config import Config, RandomConfig, LiteralConfig
 from src.utils import format_table
-from src.StateSpace import StateSpace
+from src.StateSpace import StateSpace, State
 
 import networkx as nx
 
@@ -35,7 +35,7 @@ class Project:
         self.check_inputs()
         self.prune_dependencies()
 
-        self.average_duration: float = sum([task.duration_distribution.average for task in task_list])
+        self.average_duration: float = sum([task.average_duration for task in task_list])
         self.state_space: StateSpace = StateSpace(task_list, resource_capacities)
         average_quantile = 1-1/np.exp(1)
         print(f"Creating project with {len(task_list)} tasks, "
@@ -45,8 +45,23 @@ class Project:
         print(f"Expected duration of fastest path: {round(self.state_space.expected_duration,4)}")
         print("(multiply by -log(1-p) for quantile p duration of each task, instead of expected.)")
 
-    def visualize_state_space(self):
-        self.state_space.visualize_graph()
+    def print_contingency_table(self) -> None:
+        """Print the contingency table of the project."""
+        start_task_list: List[List[State]] = [[] for _ in range(len(self.task_list))]
+        for state, task_id in self.contingency_table.items():
+            if task_id is not None:
+                start_task_list[task_id].append(state)
+        print("------------------Contingency table:------------------")
+        for h,task_starters in enumerate(start_task_list):
+            print(f"Start task {h} at states {sorted(task_starters)}")
+        print("At all other states, no task can / should be started.")
+        print("------------------------------------------------------")
+
+    def visualize_state_space(self,
+            metastate_mode: bool = True,
+            rich_annotations: bool = False
+                              ) -> None:
+        self.state_space.visualize_graph(metastate_mode=metastate_mode, rich_annotations=rich_annotations)
 
     @property
     def max_time(self) -> int:
@@ -87,13 +102,14 @@ class Project:
             add_str: str = ""
 
         task_dict_array = [
-            ["Task #", "Dependencies", "Distribution", "Avg duration", *[f"Req. {r.name}" for r in Resource]],
+            ["Task #", "Dependencies", "Distribution", "# stages", "Avg stage duration", *[f"Req. {r.name}" for r in Resource]],
         ]
         for task in self.task_list:
             task_dict_array.append([
                 str(task.id),
                 str(task.minimal_dependencies).strip("[").strip("]"),
                 task.duration_distribution.name,
+                str(task.stages),
                 str(round(task.duration_distribution.average,3)),
                 *[str(task.resource_requirements.get(r,0)) for r in Resource]
             ])
@@ -118,17 +134,34 @@ class Project:
     def from_config(cls, config: Config) -> T:
         """Create a project from a configuration object"""
 
-        tasks: List[Task] = [
-            Task.generate_random(
-                task_id=n,
-                max_simultaneous_resources_required=config.max_simultaneous_resources_required,
-                min_days=(a := np.random.randint(1, config.min_days_range)),
-                max_days=a + np.random.randint(1, config.max_days_range),
-                prob_type=config.prob_type
-            ) for n in range(config.n_tasks)
-        ]
-        resource_capacities = {Resource(n): config.resource_available for n in range(1, 1 + len(Resource))}
+        if isinstance(config, RandomConfig):
+
+            tasks: List[Task] = [
+                Task.generate_random(
+                    task_id=n,
+                    max_simultaneous_resources_required=config.max_simultaneous_resources_required,
+                    duration_average_range=config.duration_average_range,
+                    duration_variance_range=config.duration_variance_range,
+                    max_dependencies=config.max_dependencies,
+                    prob_type=config.prob_type,
+                    max_stages=config.max_stages
+                ) for n in range(config.n_tasks)
+            ]
+            resource_capacities = {Resource(n): config.resource_available for n in range(1, 1 + len(Resource))}
+        elif isinstance(config, LiteralConfig):
+            tasks: List[Task] = [
+                Task.from_dict(task_dict) for task_dict in config.tasks
+            ]
+            resource_capacities = {Resource[n]: v for n, v in config.resource_capacities.items()}
+        else:
+            raise ValueError("config must be of type RandomConfig or LiteralConfig")
         return cls(tasks, resource_capacities)
+
+    def reset_task_stages(self) -> T:
+        """Reset the stages of all tasks to 0"""
+        for task in self.task_list:
+            task.current_stage = 0
+        return self
 
     @property
     def n_topological_orderings(self) -> int:

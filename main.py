@@ -1,11 +1,10 @@
 from src.Experiment import Experiment
-from src.config import Config
+from src.config import RandomConfig, LiteralConfig
 from src.Policy import Policy
 from src.Project import Project
 
 import numpy as np
 
-# TODO: include option in contingency table that always requires starting certain tasks after others finish.
 # Call these child-tasks, that always follow their parent tasks.
 # A task then points to a child task.. pointing forward instead of backward with dependencies.
 # child tasks must have the same lambdas, dependencies...
@@ -20,49 +19,48 @@ import numpy as np
 
 # Erlang has the smallest variance of all hypoexponentials with the same mean.
 
-from src.utils import HypoExponential, Erlang
-import matplotlib.pyplot as plt
+# if __name__ == '__main__':
+#
+#     from src.utils import Erlang
+#     import matplotlib.pyplot as plt
+#
+#     lambdas = [5]
+#
+#     x = np.linspace(0, 2, 1000)
+#
+#     def exponential(x, lam: float) -> float:
+#         return lam * np.exp(-lam * x)
+#
+#
+#     for l in lambdas:
+#         plt.plot(x, exponential(x, l), label=f"Exponential λ={l}", linestyle="--")
+#         for k in [2, 5]:
+#             er = Erlang(k, l)
+#             plt.plot(x, er(x), label=f"Erlang k={k} λ={l}", lw=k)
+#
+#     plt.xlabel("Time between task start and finish")
+#     plt.ylabel("Probability density")
+#     plt.legend()
+#     plt.show()
 
 if __name__ == '__main__':
 
-    lambdas = [3,4,5,0.5]
+    config: RandomConfig = RandomConfig()
 
-    he = HypoExponential(lambdas)
-    x = np.linspace(0,5,100)
-    he_area = sum(he(x))*(x[1]-x[0])
-    print(f"HE Area: {he_area}")
-
-    k = len(lambdas)
-
-    # get the same mean:
-    # k/lam = he.mean
-    lam = k/he.mean
-    print(f"Mean: {he.mean}, k: {k}, lam: {lam}")
-    print(f"HE variance: {he.variance}, Erlang variance: {k/lam**2}")
-
-    er = Erlang(k, lam)
-
-    er_area = sum(er(x))*(x[1]-x[0])
-    print(f"Erlang Area: {er_area}")
-
-    plt.plot(x, he(x), label="Hypoexponential")
-    plt.plot(x, er(x), label="Erlang")
-    plt.legend()
-    plt.show()
-
-
-
-if __name__ == '__main__' and False:
-
-    config: Config = Config()
-
-    print("Let's create a project and check out its state space!\n")
+    print("Let's create a random project and check out its state space!\n")
 
     # execute the policy and show the results as an example
     project = Project.from_config(config)
 
+    # config2: LiteralConfig = LiteralConfig()
+    # project2 = Project.from_config(config2)
+
     # show a graph of the allowed transitions of the project
-    project.visualize_state_space()
+    project.visualize_state_space(metastate_mode=False, rich_annotations=True)
+
+    # print the contingency table
+    print("\n\n\n\n\nWe can also print the contingency table of the project for CSDP!\n")
+    project.print_contingency_table()
 
     print("\n\n\n\n\nLet's carry out our project with a random policy as a demo")
 

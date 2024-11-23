@@ -1,22 +1,17 @@
 """Hold the possible states in the state space of the project."""
-from enum import Enum
-from typing import List, Dict, Tuple, Union, TypeVar
+from typing import List, Dict, Tuple, Union, TypeVar, Iterable, Set
 
 import random
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.collections import PatchCollection
 from matplotlib import patches as mpatches
 
 from src.Objects import Task, Resource, ExponentialDistribution
+from src.utils import ArrowCoordMaker, HandlerEllipse, HandlerArrow
 
 S = TypeVar("S", bound="State")
-
-class Stati(Enum):
-    waiting = 0
-    active = 1
-    finished = 2
+MS = TypeVar("MS", bound="MetaState")
 
 
 class State:
@@ -26,67 +21,152 @@ class State:
     The state of a task can be waiting, active, or finished, and the corresponding integers are 0, 1, and 2.
     """
 
-    allowed_values = [s.value for s in Stati]
+    finished = "f"
+    # The extreme stages are 0 and f, all other stages are 'active' and have a rank of 1
+    rank_mapping = {
+        0: 0,
+        finished: 2,
+    }
 
-    def __init__(self, stati: List[int]):
-        """Initialise a state with a list of integers representing the state of each task."""
-        for stat in stati:
-            if stat not in self.allowed_values:
-                raise ValueError(f"State must be one of {self.allowed_values}")
-        self.stati: Tuple[int] = tuple(stati)
+    def __init__(
+            self,
+            total_stages: Iterable[int],
+            current_stages: Iterable[Union[int,str]] = None,
+            error_check: bool = True
+    ):
+        """Initialise a state of a project. It has an entry for each task in the project.
 
-    def finish_task(self, task_id: int) -> S:
-        """Return the state that results from finishing a task at a given index."""
-        if self.stati[task_id] != Stati.active.value:
-            raise ValueError("task must be active to be finished")
-        new_stati = list(self.stati)
-        new_stati[task_id] = Stati.finished.value
-        return State(new_stati)
+        The entries are numbers for the progress of the state.
+        0 is waiting
+        1-n is active, in the stages of a task with n stages
+        f is finished.
 
-    def start_task(self, task_id: int) -> S:
-        """Return the state that results from starting a task at a given index."""
-        if self.stati[task_id] != Stati.waiting.value:
-            raise ValueError("task must be waiting to be started")
-        new_stati = list(self.stati)
-        new_stati[task_id] = Stati.active.value
-        return State(new_stati)
+        :param total_stages: The total stages per task that need to be traversed for the task to be finished,
+            in order or task id
+        :param current_stages: The current stage of each task, in order of task_id
+        :param error_check: When constructing the state from outside, raise errors if params incorrectly configured.
+            For speed, when a state produces another state, this can be skipped.
+        """
+        self.current_stages = tuple(current_stages)
+        self.total_stages = tuple(total_stages)
+
+        # initialize the lexicographic position of the state, as a unique identifier inside its state space
+        self._lexicographic_position = None
+
+        if error_check:
+            self._error_check()
+
+    def _error_check(self):
+            if not (lts := len(self.total_stages)) == (lcs := len(self.current_stages)):
+                raise ValueError(f"Require 1 current and 1 total stage per task. Got {lcs} current and {lts} total stages.")
+
+            for current_stage, total_stage in zip(self.current_stages,self.total_stages):
+                if not isinstance(total_stage, int) or not 0 < total_stage < 9:
+                    raise ValueError("Total stages must be integers in [1,8]")
+                if isinstance(current_stage, int):
+                    if not 0 <= current_stage <= total_stage:
+                        raise ValueError(f"Current stages must be in [0,total stage] or '{self.finished}'.")
+                elif current_stage != self.finished:
+                    raise ValueError(f"Non-integer current stages must be '{self.finished}' for finished tasks.")
+
+    @classmethod
+    def rank_from_stage(cls, stage: Union[int,str]):
+        return cls.rank_mapping.get(stage, 1)
+
+    def progress_task(self, task_id: int) -> S:
+        """Return the state that results from progressing a task at a given index. Could be finishing it."""
+        if self.current_stages[task_id] == self.finished:
+            raise ValueError("Finished tasks cannot be progressed.")
+        new_stati = list(self.current_stages)
+        if new_stati[task_id] == self.total_stages[task_id]:
+            new_stati[task_id] = self.finished
+        else:
+            new_stati[task_id] += 1
+        return State(
+            total_stages=self.total_stages,
+            current_stages=new_stati,
+            error_check=False
+        )
 
     def copy(self):
         """Return a copy of the state."""
-        return State(list(self.stati))
+        return State(self.total_stages, self.current_stages, error_check=False)
 
     @property
     def is_initial(self) -> bool:
         """Return True if the state is the initial state of the project, i.e. all tasks waiting to begin."""
-        return all([self.stati[i] == Stati.waiting.value for i in range(len(self.stati))])
+        return all(c == 0 for c in self.current_stages)
 
     @property
     def is_final(self) -> bool:
         """Return True if the state is the final state of the project, i.e. all tasks finished."""
-        return all([self.stati[i] == Stati.finished.value for i in range(len(self.stati))])
+        return all(c == self.finished for c in self.current_stages)
+
+    def task_complete(self, index) -> bool:
+        """Return True if the task at index is finished."""
+        return self.current_stages[index] == self.finished
 
     def __iter__(self):
-        return iter(self.stati)
+        return iter(self.current_stages)
 
     def __getitem__(self, key):
-        return self.stati[key]
+        return self.current_stages[key]
 
     def __len__(self):
-        return len(self.stati)
+        return len(self.current_stages)
 
     def __hash__(self):
-        return hash(self.stati)
+        return hash(self.current_stages)
 
     def __eq__(self, other):
-        return self.stati == other.stati
+        return self.current_stages == other.current_stages and self.total_stages == other.total_stages
 
     def __repr__(self):
-        return "<"+"".join(map(str, self.stati))+">"
+        extremes = [self.finished]
+        str_rep = [str(c) if c in extremes else f"{c}/{t}" for c, t in zip(self.current_stages, self.total_stages)]
+        return "<"+"|".join(str_rep)+">"
+
+    def __lt__(self, other):
+        return self.lexicographic_position < other.lexicographic_position
+
+    def __gt__(self, other):
+        return self.lexicographic_position > other.lexicographic_position
 
     @property
     def rank(self) -> int:
         """Return the depth of the state in the state space graph: number of vertices traversed to reach it."""
-        return sum(self.stati)
+        return sum(map(self.rank_from_stage, self.current_stages))
+
+    def dependencies_finished(self, task: Task) -> bool:
+        """Return True if all dependencies of a task are finished in this state."""
+        return all(self[dep] == self.finished for dep in task.minimal_dependencies)
+
+    def resources_used(self, task_list: List[Task]) -> Dict[Resource, int]:
+        """Return the resources used by the active tasks in the state."""
+        currently_active = [i for i, s in enumerate(self) if s not in self.rank_mapping]
+        return {
+            resource:
+                sum(task_list[h].resource_requirements.get(resource, 0) for h in currently_active)
+            for resource in Resource
+        }
+
+    @property
+    def lexicographic_position(self) -> int:
+        """Return the unique lexicographic position of the state inside its state space.
+
+        Initial state is 0, and the final state is the largest one.
+        """
+        if self._lexicographic_position is None:
+            self._lexicographic_position = 0
+            running_digit_size = 1
+            for current_stage, max_stage in zip(
+                    self.current_stages,
+                    self.total_stages):
+                current_digit = max_stage + 1 if current_stage == self.finished else current_stage
+                self._lexicographic_position += current_digit * running_digit_size
+                running_digit_size *= max_stage + 1
+        return self._lexicographic_position
+
 
 class StateSpace:
     """Hold the possible states in the state space of the project.
@@ -94,6 +174,11 @@ class StateSpace:
     Also keeps track of the possible transitions between states, the graph topology, and the expected duration to reach
     each state.
     """
+
+    start = "s"
+    finish = "f"
+    progress = "p"
+    transition_types = [start, finish, progress]
 
     def __init__(self, tasks: List[Task], resource_capacities: Dict[Resource, int]):
         """Initialise a state space with tasks and resource capacities.
@@ -113,90 +198,109 @@ class StateSpace:
         self.tasks = tasks
         self.resource_capacities = resource_capacities
 
-        self.graph: Dict[State, Dict[str, List[Tuple[int, State]]]] = self._graph_from_tasks()
+        total_stages = [task.stages for task in tasks]
+
+        self.initial_state = State(total_stages=total_stages, current_stages=[0]*len(tasks))
+        self.final_state = State(total_stages=total_stages, current_stages=[State.finished]*len(tasks))
+
         # transitions: can only be a single change, from waiting to active, or from active to finished
         # and from waiting to active, only dependent on the resources available
         # and contingent on dependencies being finished
-        self.initial_state = State([Stati.waiting.value]*len(tasks))
-        self.final_state = State([Stati.finished.value]*len(tasks))
+        self.graph: Dict[State, Dict[str, List[Tuple[int, State]]]] = self._graph_from_tasks()
 
         # initialize a hash table for the path lengths
         self.remaining_path_lengths: Dict[State, Union[None, Union[float, int]]] = {}
         # set the decision rule for timing:
         self.decision_quantile: Union[float, None] = None
         self.expected_duration: Union[float, None] = None
+
+        # initialize some graph structures
         self.contingency_table: Dict[State, Union[int, None]] = {}
+        self.metagraph: Dict[MetaState, Dict[str, List[Tuple[int, MetaState]]]] = {}
+        self.states_per_metastate: Dict[MetaState, List[State]] = {}
+        self.meta_contingency_table: Dict[MetaState, List[int]] = {}
 
     @property
     def states(self) -> Tuple[State]:
         """Return a tuple of all states in the state space."""
         return tuple(self.graph.keys())
 
-    def descendants_of(self, state: State):
+    def descendants_of(self, state: State) -> List[Tuple[int, State]]:
         """Return a list of possible transitions from a state, both due to starting and finishing tasks, after
         the graph has been constructed."""
-        return self.graph[state]["s"] + self.graph[state]["f"]
+        return sum(self.graph[state].values(), [])
 
     def _graph_from_tasks(self) -> Dict[State, Dict[str, List[Tuple[int, State]]]]:
         """Construct the state space graph from the tasks using recursion."""
         for h, task in enumerate(self.tasks):
             if h != task.id:
                 raise ValueError("Tasks must have ids equal to their index in the list")
-        initial_state = State([Stati.waiting.value for _ in self.tasks])
-        states = [initial_state]
-        new_states = [initial_state]
+
+        states = [self.initial_state]
+        to_do_states = [self.initial_state]
         graph: Dict[State, Dict[str, List[Tuple[int, State]]]] = {}
         # now for each new state, get its descendants. If they are not in the list of states, add them
         # and add the transition to the graph
-        while len(new_states) > 0:
-            state = new_states.pop()
+        while len(to_do_states) > 0:
+            state = to_do_states.pop()  # take the next state on the docket
             descendants = self._get_descendants(state)
             graph[state] = descendants
-            for index, descendant in descendants["s"] + descendants["f"]:
+            for index, descendant in sum(descendants.values(), []):
                 if descendant not in states:
-                    new_states.append(descendant)
+                    # all states are added to to_do_states exactly once, and
+                    # are removed from it as we work through the list
+                    to_do_states.append(descendant)
                     states.append(descendant)
         return graph
+
+    def _resources_available(self, state: State) -> Dict[Resource, int]:
+        """Return the resources available in a state."""
+        resources_used = state.resources_used(self.tasks)
+        return {
+            resource: self.resource_capacities[resource] - resources_used[resource] for resource in Resource
+        }
 
     def _get_descendants(self, state: State) -> Dict[str, List[Tuple[int, State]]]:
         """Return the possible transitions from a state, both due to starting and finishing tasks.
 
         A transition is possible if the status of exactly one task is different, going from waiting to active,
-        or from active to finished.
+        progressing to the next stage, or from active to finished.
         Moreover, a task can only start if all its dependencies are finished,
         and if there are enough resources available for the task along with all other active tasks.
-        Active tasks can always finish. This simply takes time, but that is not modelled here.
+        Active tasks can always progress, and can thus finish. This simply takes time, but that is not modelled here.
 
         :param state: The state from which to find the possible transitions.
 
-        :return: A dictionary with two keys, "s" and "f", each with a list of tuples.
-            The first element of the tuple is the task id that changes status
+        :return: A dictionary with three keys, "s", "p" and "f", each with a list of tuples.
+            The first element of the tuple is the task id that changes status/stage.
             The second element is the state that results from the transition.
         """
+        extreme_stages = [0, State.finished]
+
         # initialize result containers
-        started: List[Tuple[int, State]] = []  # (task_id, state)
-        finished: List[Tuple[int, State]] = []  # (task_id, state)
-        currently_active: List[int] = [i for i in range(len(state)) if state[i] == Stati.active.value]
-        resources_used: Dict[Resource, int] = {
-            resource: sum([self.tasks[i].resource_requirements[resource] for i in currently_active]) for resource in
-            Resource}
-        resources_available: Dict[Resource, int] = {
-            resource: self.resource_capacities[resource] - resources_used[resource] for resource in Resource}
+        result_containers: Dict[str, List[Tuple[int, State]]] = {t: [] for t in self.transition_types}
+        # started/progressed/finished: List[Tuple[int, State]] = []  # (task_id, state)
+
+        resources_available: Dict[Resource, int] = self._resources_available(state)
         for h, j in enumerate(state):
-            if j == Stati.active.value:
-                finished.append((h, state.finish_task(h)))
-            elif (
-                    j == Stati.waiting.value
+            if (
+                    j == 0  # task is waiting
                     and
-                    all([state[k] == Stati.finished.value for k in self.tasks[h].minimal_dependencies])
+                    state.dependencies_finished(self.tasks[h])  # all dependencies are finished
                     and
-                    self.tasks[h].enough_resources(resources_available)
+                    self.tasks[h].enough_resources(resources_available)  # enough resources available
             ):
-                started.append((h, state.start_task(h)))
+                result_containers[self.start].append((h, state.progress_task(h)))
+            elif j not in extreme_stages:  # task is active
+                next_state = state.progress_task(h)
+                if next_state[h] == State.finished:  # was in the final stage
+                    result_containers[self.finish].append((h, next_state))
+                else:  # was in an intermediate stage
+                    result_containers[self.progress].append((h, next_state))
         # can there be states that are allowed (for dependencies and resources),
         # but are still not reached in this branching?
         # no, because all possible orderings are explored.
-        return {"s": started, "f": finished}
+        return result_containers
 
     def check_path_length(self):
         attempts = 1000
@@ -204,7 +308,7 @@ class StateSpace:
         for _ in range(attempts):
             state = self.states[0]
             path_length = 0
-            while state != State([Stati.finished.value for _ in state]) and path_length < 100:
+            while state != self.final_state and path_length < 1000:
                 state = random.choice(self.descendants_of(state))[1]
                 path_length += 1
             path_lengths.append(path_length)
@@ -224,7 +328,10 @@ class StateSpace:
         self.contingency_table: Dict[State, Union[int, None]] = {self.final_state: None}
         self.decision_quantile = decision_quantile
 
-        self.wait_is_faster_states = []  # reset the list of states where waiting is faster than starting a new task
+        self.wait_is_faster_states = []  # reset list of states from which waiting is faster than starting a new task
+
+        if not all([isinstance(task.duration_distribution, ExponentialDistribution) for task in self.tasks]):
+            raise ValueError(f"Project has non-exponential tasks: Dijkstra not currently implemented")
 
         # by querying the initial state, we will recursively calculate the expected duration to reach all states
         self.expected_duration = self.dynamic_step(self.initial_state)
@@ -247,7 +354,7 @@ class StateSpace:
         Along the way, all durations from descendants are calculated and stored, recursively,
         in self.remaining_path_lengths
 
-        This is only implemented for exponential distributions, as the state space has no memory.
+        This is only implemented for exponential/erlang distributions, as the state space has no memory.
 
         If the path length to a state has already been calculated in a different branch, it is returned immediately.
 
@@ -263,29 +370,27 @@ class StateSpace:
             # already calculated: escape now
             return self.remaining_path_lengths[state]
 
-        # not yet calculated
+        # initialize the duration to reach this state
         start_options: List[Tuple[Union[int, None], float]] = [(None, np.inf)]  # (task_id, time)
-        for start_state in self.graph[state]["s"]:
+        for start_state in self.graph[state][self.start]:
             # starting a task takes no time
             start_options.append(
                 (start_state[0], self.dynamic_step(start_state[1]))
             )
         best_start_option = min(start_options, key=lambda x: x[1])
 
-        # There may be no active tasks to finish
-        if self.graph[state]["f"]:
+        finish_options, lambdas_options, composite_exponential = self.get_wait_options(state)
 
-            finish_options, lambdas_options = self.get_wait_options(state)
-
-            sum_lambda: float = sum(lambdas_options)
+        if lambdas_options:  # There may be active tasks to finish
             # time until any task finishes is an exponential with the summed rate
-            composite_exponential: ExponentialDistribution = ExponentialDistribution(sum_lambda)
             wait_time: float = composite_exponential.quantile(self.decision_quantile)
 
             # probability (ergo weight) of each task finishing first is proportional to its rate
-            wait_option: float = sum(
-                lam * (self.dynamic_step(option) + wait_time) for lam, option in zip(lambdas_options, finish_options)
-            ) / sum_lambda
+            # and the expected time is then the sum over expected times contingent on each task finishing first
+            # times the probability of that task finishing first
+            wait_option: float = wait_time + sum(
+                lam * self.dynamic_step(option) for lam, option in zip(lambdas_options, finish_options)
+            ) / composite_exponential.lam
         else:
             # if there's no task to finish, we can wait forever
             wait_option = np.inf
@@ -306,120 +411,330 @@ class StateSpace:
 
         return self.remaining_path_lengths[state]
 
-    def get_wait_options(self, state: State) -> Tuple[List[State],List[float]]:
+    def get_wait_options(self, state: State) -> Tuple[List[State],List[float], ExponentialDistribution]:
         """return a list of possible states and the lambdas of their transitions."""
         if state not in self.graph:
             raise ValueError(f"State {state} not in state space")
-        if not all([isinstance(self.tasks[task_id].duration_distribution, ExponentialDistribution) for task_id, _ in
-                    self.graph[state]["f"]]):
-            raise ValueError(f"State {state} has non-exponential tasks: not currently implemented")
 
-        lambdas: List[float] = []
-        next_states: List[State] = []
+        progress_and_finish = self.graph[state][self.progress] + self.graph[state][self.finish]
 
-        for task_id, next_state in self.graph[state]["f"]:
-            lambdas.append(self.tasks[task_id].duration_distribution.lam)
-            next_states.append(next_state)
-        return next_states, lambdas
+        if not progress_and_finish:  # no active tasks
+            return [], [], ExponentialDistribution(1)
+
+        lambdas, next_states = zip(
+            *[(self.tasks[task_id].duration_distribution.lam, next_state)
+              for task_id, next_state in progress_and_finish])
+
+        composite_exponential = ExponentialDistribution(sum(lambdas))
+
+        return next_states, lambdas, composite_exponential
 
     def wait_for_finish(self, state: State) -> Dict[str, Union[float, State]]:
-        if not self.graph[state]["f"]:
+        """Simulate waiting for a task to finish and return the time and the state that results from it."""
+
+        next_states, lambdas, composite_exponential = self.get_wait_options(state)
+        if not lambdas:
             raise ValueError(f"State {state} has no active tasks")
 
-        if len(self.graph[state]["f"]) == 1:
-            task_id, next_state = self.graph[state]["f"][0]
-            return {"time": self.tasks[task_id].duration_distribution.realization(), "state": next_state}
-
-        next_states, lambdas = self.get_wait_options(state)
-
-        sum_lambda: float = sum(lambdas)
-        composite_exponential = ExponentialDistribution(sum_lambda)
-
         wait_time = composite_exponential.realization()
-        new_state_n = np.random.choice(list(range(len(next_states))), p=[lam / sum_lambda for lam in lambdas])
+        new_state_n = np.random.choice(len(next_states), p=[lam / composite_exponential.lam for lam in lambdas])
         return {"time": wait_time, "state": next_states[new_state_n]}
 
-    def visualize_graph(self) -> None:
-        """Create a graph of the graph."""
+    def get_metastate_graph(self):
+        """Create a graph of the metastates of the state space. Collect states with the same active tasks."""
+        if self.graph == {}:
+            raise ValueError("State space graph is empty. Construct it first.")
+        if self.states_per_metastate != {}:
+            raise ValueError("Metastate graph already constructed.")
 
-        state_ranks: Dict[int, List[State]] = {k: [] for k in range(2*len(self.tasks)+1)}
+        for state in self.graph:
+            metastate = MetaState.from_state(state)
+            self.states_per_metastate.setdefault(metastate, []).append(state)
 
-        for state in self.states:
+            if metastate not in self.metagraph:
+                self.metagraph[metastate]: Dict[str, Set[Tuple[int, MetaState]]] = {
+                    self.start: [],
+                    self.finish: []
+                }
+            # don't need to consider progress transitions: same metastate
+            for transition_type in [self.start, self.finish]:
+                for task_id, next_state in self.graph[state][transition_type]:
+                    next_metastate = MetaState.from_state(next_state)
+                    next_tuple = (task_id, next_metastate)
+                    if next_tuple not in self.metagraph[metastate][transition_type]:
+                        self.metagraph[metastate][transition_type].append(next_tuple)
+
+        # now convert the contingency table:
+        for state, task_id in self.contingency_table.items():
+            local_contingents = self.meta_contingency_table.setdefault(MetaState.from_state(state), [])
+            if task_id is None:
+                continue
+            local_contingents.append(task_id)
+
+    def visualize_graph(
+            self,
+            metastate_mode: bool = True,
+            rich_annotations: bool = False,
+    ) -> None:
+        """Create a graph of the state space, with states as vertices and transitions as edges.
+
+        The states are ordered from left to right by the progress of project completion. Whenever a
+        task is started or finished, the corresponding state moves one column to the right. There are then
+        2*N+1 columns for N tasks. The initial state is on the left, the final state on the right.
+
+        The states are stacked vertically in a column, so the height is a heuristic for the number of different
+        paths (choices) that can be taken at that point in the project.
+
+        Arrows indicate transitions, and they cannot point backwards, or form loops. Red for starting a task,
+        blue for finishing a task.
+
+        :param metastate_mode: If True, group states with the same active tasks in the same metastate.
+            If False, a single task in different stages implies separately plotted states
+            (can be convoluted for even medium-sized projects).
+            If False, green arrows connect states that differ by a single tasks progressing through its stages.
+        :param rich_annotations: If True, annotate arrows with which task is changing status, and fills the states with
+            a flag of idle, active, or finished tasks, in metastate mode. Inadviseable for large projects.
+            if metastate_mode is False, the stage of each task is shown.
+            if False, the number of states in the metastate is printed, or if metastate_mode is False, simply 's'.
+        """
+
+        if metastate_mode:
+            self.get_metastate_graph()  # construct the graph with vertices collections of similar states
+            Atom = MetaState  # the smallest class to group on
+            graph = self.metagraph
+            transition_types = [t for t in self.transition_types if t != self.progress]
+            def optimal_contingent(state: MetaState, task_id: int) -> bool:
+                return task_id in self.meta_contingency_table[state]
+        else:
+            Atom = State  # the smallest class to group on
+            graph = self.graph
+            transition_types = self.transition_types
+            def optimal_contingent(state: State, task_id: int) -> bool:
+                return task_id == self.contingency_table[state]
+
+        state_ranks: Dict[int, List[Atom]] = {k: [] for k in range(2*len(self.tasks)+1)}  # initialize the ranks
+
+        for state in graph.keys():
             state_ranks[state.rank].append(state)
 
-        # see how many states map to each state in the graph
-        inverse_state_graph: Dict[State, List[State]] = {state: [] for state in self.states}
-        for state, transitions in self.graph.items():
-            for _, next_state in transitions["s"] + transitions["f"]:
+        # We want to reduce the presence of arrows pointing steeply up and down, by choosing a smart
+        # layout of the states. We will sort the states in a column by the average height of the states
+        # in the previous column that point to them.
+        # This allows for a single pass heuristic that will hopefully return a reasonable vertical ordering.
+        # For this, we must first see how many states map to each state in the graph
+        inverse_state_graph: Dict[Atom, List[Atom]] = {state: [] for state in graph.keys()}
+        for state, transitions in graph.items():
+            for _, next_state in transitions[self.start] + transitions[self.finish]:
                 inverse_state_graph[next_state].append(state)
 
-        def avg_pos_precursors(_state) -> float:
-            if not inverse_state_graph[_state]:
-                return 0
-            return sum(state_positions[prev][1] for prev in inverse_state_graph[_state]) / len(inverse_state_graph[_state])
-
         # get position of each state on the canvas:
-        state_positions: Dict[State, Tuple[int, int]] = {}
+        state_positions: Dict[Atom, Tuple[int, int]] = {}
+
+        def avg_pos_precursors(_state) -> Tuple[float, int]:
+            isg = inverse_state_graph[_state]
+            if not isg:
+                return 0, _state.lexicographic_position
+            av_pos = sum(state_positions[prev][1] for prev in isg) / len(isg)
+            return av_pos, _state.lexicographic_position
+
         for rank in state_ranks.keys():
-            # heuristic: sort by the average height of the states that will point to this state
+            # heuristic: sort by the average height of the precursors
             # hopefully will make arrows as horizontal as possible
             states = sorted(
                 state_ranks[rank],
                 key=avg_pos_precursors
             )
             for i, state in enumerate(states):
-                state_positions[state] = (rank, i)
+                state_positions[state] = (rank, i+1)
 
-        def make_arrow(start_pos: Tuple[int, int], end_pos: Tuple[int, int]) -> mpatches.Arrow:
-            return mpatches.Arrow(start_pos[0], start_pos[1], 1, end_pos[1] - start_pos[1], width=0.3, alpha = 0.5)  # x, y, dx, dy
+        transition_annotations: Dict[Tuple[float, float], List[str]] = {}  # initialize the annotations
 
-        # create the line collection data for the transitions
-        sf_collections = {"s": [], "f": []}  # for the lines of task starting and task finishing
-        for state, transitions in self.graph.items():
-            for lab_letter in ["s", "f"]:
+        # smart arrow coord maker, that doesn't allow vertical arrows to overlap.
+        arrow_maker = ArrowCoordMaker()
+
+        # construct the arrows and their annotations
+        sf_collections = {t: [] for t in transition_types}  # for the lines of task starting, finishing, progressing
+        contingent_starts = []  # position of arrows for the optimal starts per state
+        for state, transitions in graph.items():
+            for lab_letter in transition_types:
                 for task_id, next_state in transitions[lab_letter]:
-                    sf_collections[lab_letter].append(
-                        make_arrow(state_positions[state], state_positions[next_state])
-                    )
+                    arrow, (text_x,text_y) = arrow_maker.make(state_positions[state], state_positions[next_state])
+                    sf_collections[lab_letter].append(arrow)
+                    transition_annotations.setdefault((text_x, text_y),[]).append(lab_letter+str(task_id))
+                    # check if arrow is contingency table choice, and if so, give it a different color.
+                    if lab_letter == self.start and optimal_contingent(state, task_id):
+                        contingent_starts.append(len(sf_collections[lab_letter])-1)
 
         fig, ax = plt.subplots()
         ax.set_xlim(-1, 2*len(self.tasks)+1)
-        max_height = max(map(len, state_ranks.values()))
-        ax.set_ylim(-1, max_height)
+        max_height = max(v[1] for v in state_positions.values())+1
+        ax.set_ylim(0, max_height)
 
-        if (lsc := len(sf_collections["s"])) != len(sf_collections["f"]):
-            raise ValueError("There should be the same number of states starting and finishing in the total graph.")
+        assert len(sf_collections[self.start]) == len(sf_collections[self.finish]), "# start == # finish transitions"
 
-        pc = PatchCollection(sf_collections["s"] + sf_collections["f"], color= ["r"]*lsc+["b"]*lsc,)
+        # draw the arrows
+        for t, col in zip(transition_types, ["m", "b", "g"]):
+            for h,arrow in enumerate(sf_collections[t]):
+                newcol = "r" if (t == self.start and h in contingent_starts) else col
+                ax.arrow(
+                    *arrow,
+                    head_width=0.1,
+                    head_length=0.1,
+                    ec=newcol,
+                    fc=newcol,
+                    lw=5,
+                    length_includes_head=True,
+                )
 
-        # lc = LineCollection(start_collection+finish_collection, linewidths=1, colors=["r"]*lsc+["b"]*lsc)
+
+
+        def suf_maker(x: Atom):
+            if metastate_mode:
+                return str(len(self.states_per_metastate[x]))
+            return self.start
+
+        if rich_annotations:
+
+            # If all metastates have exactly one constituent state (probably due to project config set without allowing
+            # multiple stages per task), don't clutter annotations by showing the number of states in each metastate.
+            variable_state_counts = not all([suf_maker(x) == "1" for x in state_positions.keys()])
+
+            def string_maker(x):
+                base_string = str(x)[1:-1]
+                if metastate_mode and variable_state_counts:
+                    return base_string + f" ({(suf_maker(x))})"
+                return base_string
+
+            bbox = dict(boxstyle="round", fc="0.8")
+            state_button_contents = map(string_maker, state_positions.keys())
+            for pos, label in transition_annotations.items():
+                ax.annotate("\n".join(label), pos, bbox=bbox, fontsize=12,
+                            horizontalalignment='center',
+                            verticalalignment='center')
+        else:
+            state_button_contents = map(suf_maker, state_positions.keys())
+
+        col_dict = {0: "cyan", 2*len(self.tasks): "yellow"}  # first and last column are initial and final states
 
         # plot the states as dots
-        ax.scatter(*zip(*state_positions.values()), color="black")
-        for label,if_state,col in [("Initial", self.initial_state, "g"), ("Final", self.final_state, "y")]:
-            x,y = state_positions[if_state]
-            ax.text(x,y+max_height/20, label[0], fontsize=12)
-            ax.plot(x,y,marker="s",c=col, label=f"{label} State", markersize=10)
+        for x, y, button_content in zip(*zip(*state_positions.values()), state_button_contents):
+            ax.text(x, y, button_content,
+                    horizontalalignment='center',
+                    verticalalignment='center',
+                    bbox={
+                        "boxstyle": "circle",  # can be "ellipse" for more vertical space efficiency
+                        "facecolor": col_dict.get(x, "grey"),
+                        "edgecolor": "black"
+                    }
+                    )
 
-
-        ax.add_collection(pc)
-
-        # access legend objects automatically created from data
-        handles, _ = plt.gca().get_legend_handles_labels()
+        if metastate_mode:
+            if rich_annotations:
+                label = "metastate" + (" (# states)" if variable_state_counts else "")
+            else:
+                label = "# states"
+        else:
+            label = "state"
 
         # create manual symbols for legend
-        handles.extend(
-            [mpatches.Arrow(0,0,1,0,color=c, label=lab) for c, lab in [("r", "start task"), ("b", "finish task")]]
-        )
+        legend_handles = [
+            mpatches.Circle((0,0), 0.1, facecolor="grey", edgecolor="black"),
+            mpatches.Circle((0,0), 0.1, facecolor="cyan", edgecolor="black"),
+            mpatches.Circle((0,0), 0.1, facecolor="yellow", edgecolor="black"),
+            mpatches.Arrow(0,0,1,0, color="r"),
+            mpatches.Arrow(0,0,1,0, color="m"),
+            mpatches.Arrow(0,0,1,0, color="b"),
+        ]
+        legend_lables = [label,
+                         "initial state",
+                         "final state",
+                         "optimal start task",
+                         "alternative start task",
+                         "finish task"]
 
-        ax.legend(handles=handles)
+        if not metastate_mode:
+            legend_handles.append(mpatches.Arrow(0,0,1,0, color="g"))
+            legend_lables.append("progress task")
+
+        ax.legend(legend_handles,
+                  legend_lables,
+                  handler_map={
+                      mpatches.Circle: HandlerEllipse(),
+                      mpatches.Arrow: HandlerArrow()
+                  })
 
         # x label
         ax.set_xlabel("Progress in project execution")
         ax.set_ylabel("Number of possible states")
-        ax.set_title("State Space Transition Graph")
+        # set x and y ticks to only possible values
+        ax.set_yticks(range(1,max_height))
+        ax.set_xticks(range(2*len(self.tasks)+1))
+        pref = "Meta" if metastate_mode else ""
+        ax.set_title(f"{pref}State Space Transition Graph")
 
         plt.show()
 
+
+class MetaState:
+    """A collection of states where the same tasks are active, but in different stages.
+
+    :param waiting_states: The task ids that are waiting in this metastate.
+    :param active_states: The task ids that are active in this metastate.
+    :param finished_states: The task ids that are finished in this metastate.
+    """
+
+    def __init__(
+            self,
+            waiting_states: Iterable[int],
+            active_states: Iterable[int],
+            finished_states: Iterable[int],
+    ):
+        self.waiting_states = tuple(sorted(waiting_states))
+        self.active_states = tuple(sorted(active_states))
+        self.finished_states = tuple(sorted(finished_states))
+        self.n_tasks = len(self.waiting_states) + len(self.active_states) + len(self.finished_states)
+
+        self.lexicographic_position: int = sum(3**i for i in active_states) + 2 * sum(3**i for i in finished_states)
+
+    def __hash__(self):
+        return hash((self.waiting_states, self.active_states, self.finished_states))
+
+    def __repr__(self):
+        string_list = [""]*self.n_tasks
+        for _symbol, _states in zip("IAF", [self.waiting_states, self.active_states, self.finished_states]):
+            for state in _states:
+                string_list[state] = _symbol
+        return "<"+"".join(string_list)+">"
+
+    @classmethod
+    def from_state(cls, state: State) -> MS:
+        """Create a metastate from a state."""
+        waiting_states, active_states, finished_states = [], [], []
+        for h, stage in enumerate(state):
+            if stage == 0:
+                waiting_states.append(h)
+            elif stage == State.finished:
+                finished_states.append(h)
+            else:
+                active_states.append(h)
+        return cls(
+            waiting_states=waiting_states,
+            active_states=active_states,
+            finished_states=finished_states,
+        )
+
+    def __eq__(self, other):
+        return (
+                self.waiting_states == other.waiting_states
+                and
+                self.active_states == other.active_states
+                and
+                self.finished_states == other.finished_states
+        )
+
+    @property
+    def rank(self) -> int:
+        """Return the depth of the state in the state space graph: number of vertices traversed to reach it."""
+        return 2*len(self.finished_states) + len(self.active_states)
 
 

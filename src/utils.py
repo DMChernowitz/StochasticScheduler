@@ -1,6 +1,9 @@
-from typing import List, Tuple, Union, Any
+from typing import List, Tuple, Union, Any, Dict
 
 import numpy as np
+
+import matplotlib.patches as mpatches
+from matplotlib.legend_handler import HandlerPatch
 
 def str_of_length(s: Any, length: int) -> str:
     """Return a string of length length, padding with spaces if necessary"""
@@ -77,8 +80,10 @@ def hypo_exponential(x: float, lambdas: List[float]) -> float:
 def erlang_distribution(x: float, k: int, lam: float) -> float:
     return (lam**k * x**(k-1) * np.exp(-lam * x)) / np.math.factorial(k-1)
 
+
 def log_normal(x: float, mu: float, sigma: float) -> float:
     return np.exp(-0.5 * ((np.log(x) - mu) / sigma)**2) / (x * sigma * np.sqrt(2 * np.pi))
+
 
 def log_normal_mean(mu: float, sigma: float) -> float:
     return np.exp(mu + sigma**2 / 2)
@@ -102,10 +107,85 @@ def moments_to_erlang(mu: float, var: float) -> Tuple[int, float]:
     mu = k/lambda
     var = k/lambda^2
     """
-    # first get the closest integer k > 1, as physical tasks never have the largest probability density at 0
-    k = max(2,round(mu**2 / var))
+    # first get the closest integer k > 1, as physical tasks never have the mode at 0
+    k = max(2, round(mu**2 / var))
 
     # then get the lambda that fits the mean best
     lam = k / mu
     return k, lam
+
+
+class ArrowCoordMaker:
+
+    def __init__(self, packing_factor: float = 0.5):
+        """
+        Helper class to take positions of states on the state space visualization and creates the coordinates of
+        arrows between states if there is an allowed transition.
+
+        Keeps track of how many vertical arrows have been made per row, and shifts them to not overlap"""
+
+        # key: x position, value: list of tuples (y_start, y_end, xorder)
+        self.progress_arrow_table: Dict[int, List[Tuple[int,int,int]]] = {}
+        self.bub = 0.1  # margin between end of the arrow and the state bubble (distance state-state is 1)
+        self.packing_factor = packing_factor
+
+    def make(self, start_pos: Tuple[int, int], end_pos: Tuple[int, int]) -> Tuple[
+    Tuple[float, float, float, float], Tuple[float, float]]:
+        """Create an arrow from start_pos to end_pos. Used in the visualization of the state space graph."""
+
+        # first get all the arrows that are in the way, and find the lowest x shift (xorder) that is not taken
+        if (vx := start_pos[0]) == end_pos[0]:
+            self.progress_arrow_table.setdefault(vx, [])
+            overlappers = []
+            new_lower, new_upper = min(start_pos[1], end_pos[1]), max(start_pos[1], end_pos[1])
+            for alt_lower, alt_upper, xorder in self.progress_arrow_table[vx]:
+                if (
+                        new_lower < alt_lower < new_upper or
+                        new_lower < alt_upper < new_upper or
+                        alt_lower < new_lower < alt_upper or
+                        alt_lower < new_upper < alt_upper
+                ):  # overlap. Two arrows can't completely coincide by construction.
+                    overlappers.append(xorder)
+            for xorder in range(len(self.progress_arrow_table[vx])+1):
+                if xorder not in overlappers:
+                    break
+            self.progress_arrow_table[vx].append((new_lower, new_upper, xorder))
+            shift_x = xorder * self.bub * self.packing_factor
+        else:
+            shift_x = 0
+
+        dx = end_pos[0] - start_pos[0]
+        dy = end_pos[1] - start_pos[1]
+        dx_margin = self.bub if dx > 0.5 else 0
+        if abs(dy) > 0.5:
+            dy_margin = self.bub if dy > 0.5 else -self.bub
+        else:
+            dy_margin = 0
+        arrow = (
+            start_pos[0] + dx_margin + shift_x,  # x
+            start_pos[1] + dy_margin,  # y
+            dx - 2 * dx_margin,  # dx
+            dy - 2 * dy_margin,  # dy
+        )
+        return arrow, (start_pos[0] + 0.5 * dx + shift_x, start_pos[1] + 0.5 * dy)
+
+class HandlerEllipse(HandlerPatch):
+    def create_artists(self, legend, orig_handle,
+                       xdescent, ydescent, width, height, fontsize, trans):
+        center = 0.5 * width - 0.5 * xdescent, 0.5 * height - 0.5 * ydescent
+        p = mpatches.Ellipse(xy=center, width=width + xdescent,
+                             height=height + ydescent)
+        self.update_prop(p, orig_handle, legend)
+        p.set_transform(trans)
+        return [p]
+
+
+class HandlerArrow(HandlerPatch):
+    def create_artists(self, legend, orig_handle,
+                       xdescent, ydescent, width, height, fontsize, trans):
+        p = mpatches.FancyArrow(0, 0.5*height, width, 0, width=3, head_width=height,
+                                head_length=0.5 * height, length_includes_head=True)
+        self.update_prop(p, orig_handle, legend)
+        p.set_transform(trans)
+        return [p]
 
