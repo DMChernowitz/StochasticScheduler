@@ -45,7 +45,7 @@ import numpy as np
 
 if __name__ == '__main__':
 
-    config: RandomConfig = RandomConfig()
+    config: LiteralConfig = LiteralConfig()
 
     print("Let's create a random project and check out its state space!\n")
 
@@ -56,7 +56,7 @@ if __name__ == '__main__':
     # project2 = Project.from_config(config2)
 
     # show a graph of the allowed transitions of the project
-    project.visualize_state_space(metastate_mode=False, rich_annotations=True)
+    project.visualize_state_space(metastate_mode=True, rich_annotations=True)
 
     # print the contingency table
     print("\n\n\n\n\nWe can also print the contingency table of the project for CSDP!\n")
@@ -65,7 +65,7 @@ if __name__ == '__main__':
     print("\n\n\n\n\nLet's carry out our project with a random policy as a demo")
 
     # create a random policy
-    base_policy = list(range(config.n_tasks))
+    base_policy = list(range(len(project.task_list)))
     np.random.shuffle(base_policy)
 
     # initialize the policy

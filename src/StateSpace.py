@@ -602,7 +602,7 @@ class StateSpace:
             def string_maker(x):
                 base_string = str(x)[1:-1]
                 if metastate_mode and variable_state_counts:
-                    return base_string + f" ({(suf_maker(x))})"
+                    return " "+base_string + f" \n({(suf_maker(x))})"
                 return base_string
 
             bbox = dict(boxstyle="round", fc="0.8")

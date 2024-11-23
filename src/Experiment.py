@@ -30,7 +30,7 @@ class Experiment:
         The execution is probabilistic, so the results will vary between runs. We run each policy
         self.config.n_runs times.
         """
-        base_policy_list = list(range(self.config.n_tasks))
+        base_policy_list = list(range(len(self.project.task_list)))
 
         for _ in range(self.config.n_permutations):
 
