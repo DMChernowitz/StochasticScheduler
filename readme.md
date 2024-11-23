@@ -4,7 +4,7 @@ This is a project used to explore, solve, and visualize SRCPSPs, or Stochastic R
 
 ### Definition
 
-An SRCPSP is a project scheduling problem of when to start a number of tasks such that all are completed in the shortest time possible. The time between start of the first task and the completion of the last task is called the _makespan_. Some characteristics
+An SRCPSP is a project scheduling problem. It asks: _when to start tasks such that all are completed in the shortest time possible?_ The time between start of the first task and the completion of the last task is called the _makespan_. Some characteristics:
 - Each task has a duration that is a random variable. We know its distribution.
 - Each task has dependency constraints, meaning that some tasks must finish before others can start. 
 - Resources are limited, each task occupies a predefined amount of each resource while active. 
@@ -25,10 +25,12 @@ For exponentials, and only exponentials, we do not need to keep track of how lon
 ### Erlang Distributed Tasks
 
 With slight admin, this basic framework can be augmented to allow each task to have multiple identical stages, that must finish in sequence. Under the hood, these are separate subtasks that must start upon the completion of the previous stage. However, it is more realistic as it allows
-for tasks with an Erlang duration distribution, with notably doesn't have its mode at zero.
+for tasks with an Erlang duration distribution, which notably doesn't have its mode at zero.
 
 See an example of the distribution of three tasks, all with lambda=5, the first consists of 1 stage, the second of 2 stages, and the last of 5 stages. Changing lambda only scales the time axis.
 ![Erlang Graph](readme_imgs/erlang.png)
+
+The price is of course added computational complexity.
 
 ## Execution Policies
 
