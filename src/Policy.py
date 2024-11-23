@@ -15,7 +15,7 @@ class Policy:
         :param project: The project to which the policy applies.
         :param policy: The policy, a list of task ids in order of priority.
         """
-        self.policy: List[int] = policy
+        self.remaining_policy: List[int] = policy
         self.original_policy: List[int] = policy.copy()
         self.project: Project = project
 
@@ -55,11 +55,12 @@ class Policy:
             # and administer what happens when it finishes
             self.time_step: float = min(self.future_task_progress.keys())
             progressed_task_ids: List[int] = self.future_task_progress.pop(self.time_step)
-            current_state = self.state_sequence[-1][1]
             for progressed_task_id in progressed_task_ids:
+                current_state = self.state_sequence[-1][1]
                 self.task_ids_progressed_per_time.setdefault(self.time_step, []).append(progressed_task_id)
                 next_state = current_state.progress_task(progressed_task_id)
                 progressed_task: Task = self.project.task_list[progressed_task_id]
+                # task may finish, or may progress to the next stage
                 if next_state.task_complete(progressed_task_id):
                     for resource, requirement in progressed_task.resource_requirements.items():
                         self.resource_available_current[resource] += requirement
@@ -73,8 +74,8 @@ class Policy:
             # choose a task to execute, and administer what happens when it starts, and set a time for it to finish
             chosen_task = self.project.task_list[chosen_task_id]
             self.docket.setdefault(self.time_step,[]).append(chosen_task_id)
-            chosen_task_finished = self.time_step + chosen_task.duration_realization()
-            self.future_task_progress.setdefault(chosen_task_finished, []).append(chosen_task_id)
+            chosen_task_progress = self.time_step + chosen_task.duration_realization()
+            self.future_task_progress.setdefault(chosen_task_progress, []).append(chosen_task_id)
             for resource, requirement in chosen_task.resource_requirements.items():
                 self.resource_available_current[resource] -= requirement
             self.state_sequence.append((self.time_step,self.state_sequence[-1][1].progress_task(chosen_task_id)))
@@ -89,16 +90,17 @@ class Policy:
 
         Returns the task id of the task that is chosen to be executed, or None if no task can be executed.
         returned task is removed from the policy, the 'to-do list'.
+
+        By construction, a task still on the policy can't be active or finished.
         """
-        for j,task_id in enumerate(self.policy):
-            if not self.task_completion[task_id]:
-                task: Task = self.project.task_list[task_id]
-                prerequisites: List[bool] = [
-                    self.task_completion[dependency] for dependency in task.minimal_dependencies
-                ]
-                if task.enough_resources(self.resource_available_current) and all(prerequisites):
-                    # execute this task, and remove it from the policy (of to dos)
-                    return self.policy.pop(j)
+        for j,task_id in enumerate(self.remaining_policy):
+            task: Task = self.project.task_list[task_id]
+            prerequisites: List[bool] = [
+                self.task_completion[dependency] for dependency in task.minimal_dependencies
+            ]
+            if task.enough_resources(self.resource_available_current) and all(prerequisites):
+                # execute this task, and remove it from the policy (of to dos)
+                return self.remaining_policy.pop(j)
         return None
 
     def get_gant_str(self, n_times: int = 100) -> str:
@@ -114,7 +116,9 @@ class Policy:
 
         for time,task_ids in self.task_ids_progressed_per_time.items():
             for task_id in task_ids:
-                inverse_task_finish_dict[task_id] = time
+                # the last time a task progressed is when it finished
+                min_time = inverse_task_start_dict.get(task_id,0)
+                inverse_task_finish_dict[task_id] = max(min_time,time)
 
         for time,task_ids in self.docket.items():
             for task_id in task_ids:
@@ -158,7 +162,7 @@ class Policy:
 
         for resource in Resource:
             max_n_resources = self.project.resource_capacities[resource]
-            resource_graph = [str_of_length(j,5)+": |" for j in range(max_n_resources)]
+            resource_graph = [str_of_length(j+1,5)+": |" for j in range(max_n_resources)]
 
             # iterate over the snapshots of the resources. We are always in a certain period between two snapshots
             items_iter = iter(self.resources_snapshots.items())
@@ -181,7 +185,11 @@ class Policy:
     def __repr__(self):
 
         if self.time_step == 0:
-            return "Policy (not yet executed)"
+            return (
+                "----------------------------------------\n"
+                f"Policy (unexecuted): {self.original_policy} \n"
+                "----------------------------------------\n"
+            )
 
         gant_str = self.get_gant_str()
 

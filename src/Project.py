@@ -1,7 +1,7 @@
 from typing import Dict, List, TypeVar, Set
 
 from src.Objects import Task, Resource
-from src.config import Config
+from src.config import Config, RandomConfig, LiteralConfig
 from src.utils import format_table
 from src.StateSpace import StateSpace, State
 
@@ -134,18 +134,27 @@ class Project:
     def from_config(cls, config: Config) -> T:
         """Create a project from a configuration object"""
 
-        tasks: List[Task] = [
-            Task.generate_random(
-                task_id=n,
-                max_simultaneous_resources_required=config.max_simultaneous_resources_required,
-                duration_average_range=config.duration_average_range,
-                duration_variance_range=config.duration_variance_range,
-                max_dependencies=config.max_dependencies,
-                prob_type=config.prob_type,
-                max_stages=config.max_stages
-            ) for n in range(config.n_tasks)
-        ]
-        resource_capacities = {Resource(n): config.resource_available for n in range(1, 1 + len(Resource))}
+        if isinstance(config, RandomConfig):
+
+            tasks: List[Task] = [
+                Task.generate_random(
+                    task_id=n,
+                    max_simultaneous_resources_required=config.max_simultaneous_resources_required,
+                    duration_average_range=config.duration_average_range,
+                    duration_variance_range=config.duration_variance_range,
+                    max_dependencies=config.max_dependencies,
+                    prob_type=config.prob_type,
+                    max_stages=config.max_stages
+                ) for n in range(config.n_tasks)
+            ]
+            resource_capacities = {Resource(n): config.resource_available for n in range(1, 1 + len(Resource))}
+        elif isinstance(config, LiteralConfig):
+            tasks: List[Task] = [
+                Task.from_dict(task_dict) for task_dict in config.tasks
+            ]
+            resource_capacities = {Resource[n]: v for n, v in config.resource_capacities.items()}
+        else:
+            raise ValueError("config must be of type RandomConfig or LiteralConfig")
         return cls(tasks, resource_capacities)
 
     def reset_task_stages(self) -> T:

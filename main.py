@@ -1,5 +1,5 @@
 from src.Experiment import Experiment
-from src.config import Config
+from src.config import RandomConfig, LiteralConfig
 from src.Policy import Policy
 from src.Project import Project
 
@@ -19,44 +19,47 @@ import numpy as np
 
 # Erlang has the smallest variance of all hypoexponentials with the same mean.
 
-from src.utils import Erlang
-import matplotlib.pyplot as plt
+# if __name__ == '__main__':
+#
+#     from src.utils import Erlang
+#     import matplotlib.pyplot as plt
+#
+#     lambdas = [5]
+#
+#     x = np.linspace(0, 2, 1000)
+#
+#     def exponential(x, lam: float) -> float:
+#         return lam * np.exp(-lam * x)
+#
+#
+#     for l in lambdas:
+#         plt.plot(x, exponential(x, l), label=f"Exponential λ={l}", linestyle="--")
+#         for k in [2, 5]:
+#             er = Erlang(k, l)
+#             plt.plot(x, er(x), label=f"Erlang k={k} λ={l}", lw=k)
+#
+#     plt.xlabel("Time between task start and finish")
+#     plt.ylabel("Probability density")
+#     plt.legend()
+#     plt.show()
 
 if __name__ == '__main__':
 
-    lambdas = [5]
+    config: RandomConfig = RandomConfig()
 
-    x = np.linspace(0, 2, 1000)
-
-    def exponential(x, lam: float) -> float:
-        return lam * np.exp(-lam * x)
-
-
-    for l in lambdas:
-        plt.plot(x, exponential(x, l), label=f"Exponential λ={l}", linestyle="--")
-        for k in [2, 5]:
-            er = Erlang(k, l)
-            plt.plot(x, er(x), label=f"Erlang k={k} λ={l}", lw=k)
-
-    plt.xlabel("Time between task start and finish")
-    plt.ylabel("Probability density")
-    plt.legend()
-    plt.show()
-
-if __name__ == '__main__':
-
-    config: Config = Config()
-
-    print("Let's create a project and check out its state space!\n")
+    print("Let's create a random project and check out its state space!\n")
 
     # execute the policy and show the results as an example
     project = Project.from_config(config)
 
+    # config2: LiteralConfig = LiteralConfig()
+    # project2 = Project.from_config(config2)
+
     # show a graph of the allowed transitions of the project
-    project.visualize_state_space(metastate_mode=True, rich_annotations=True)
+    project.visualize_state_space(metastate_mode=False, rich_annotations=True)
 
     # print the contingency table
-    print("\n\n\n\n\nLet's see the contingency table of the project for CSDP!\n")
+    print("\n\n\n\n\nWe can also print the contingency table of the project for CSDP!\n")
     project.print_contingency_table()
 
     print("\n\n\n\n\nLet's carry out our project with a random policy as a demo")

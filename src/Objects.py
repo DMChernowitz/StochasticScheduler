@@ -17,19 +17,19 @@ class Resource(Enum):
     Inheritance from Enum allows for iteration over the values of the enumeration,
     and so it's hashable and can be used as a dictionary key.
     """
-    drill = auto()
     centrifuge = auto()
     crane = auto()
+    drill = auto()
 
 
 class ProbabilityDistribution(ABC):
     """Abstract Base class indicating what methods a probability distribution should have."""
 
-    def realization(self) -> float:
+    def realization(self) -> Union[float,int]:
         """Sample from the (1d) distribution and return a single stochast."""
         pass
 
-    def quantile(self, p: float) -> float:
+    def quantile(self, p: float) -> Union[float,int]:
         """Return the p-quantile of the distribution: the point on the indep (time) axis with a p-share of the
         surface area to its left."""
         pass
@@ -42,7 +42,7 @@ class ProbabilityDistribution(ABC):
 
     @property
     @abstractmethod
-    def max(self) -> float:
+    def max(self) -> Union[float,int]:
         """Return the maximal duration of an event described by this distribution. I.e. worst case scenario."""
         pass
 
@@ -76,7 +76,7 @@ class ExponentialDistribution(ProbabilityDistribution):
         return self.quantile(Config.max_duration_quantile)
 
 
-class IntProbabilityDistribution:
+class IntProbabilityDistribution(ProbabilityDistribution):
     """Toy prob distribution for tasks that can take a (small number of) integer durations.
     For instance, days or shifts. This makes the memory enumerable, and therefore discrete time evolution tractable.
 
@@ -167,11 +167,14 @@ class IntProbabilityDistribution:
 
 class Task:
     """Fundamental unit of a project, with resource requirements, duration distribution, and dependencies."""
+
+    MAX_STAGES = 8
+
     def __init__(
             self,
             task_id: int,
             resource_requirements: Dict[Resource, int],
-            duration_distribution: IntProbabilityDistribution,
+            duration_distribution: ProbabilityDistribution,
             dependencies: List[int],
             stages: int = 1
     ):
@@ -187,13 +190,13 @@ class Task:
         """
         if stages < 1:
             raise ValueError(f"Task must have at least one stage. Got {stages}.")
-        if stages > 8:
-            raise ValueError(f"Task should have at most 8 stages. Got {stages}.")
+        if stages > self.MAX_STAGES:
+            raise ValueError(f"Task should have at most {self.MAX_STAGES} stages. Got {stages}.")
 
         self.id: int = task_id
         self.dependencies: List[int] = sorted(dependencies)
         self.resource_requirements: Dict[Resource, int] = resource_requirements
-        self.duration_distribution: Union[IntProbabilityDistribution,ExponentialDistribution] = duration_distribution
+        self.duration_distribution: ProbabilityDistribution = duration_distribution
         self.minimal_dependencies: Union[None,List[int]] = None
         self.full_dependencies: Union[None,List[int]] = None
         self.stages: int = stages
@@ -213,7 +216,7 @@ class Task:
             raise ValueError("Cannot activate a task that's alreafy started")
         self.current_stage = 1
 
-    def duration_realization(self) -> int:
+    def duration_realization(self) -> Union[int,float]:
         """Sample the distribution of the task and return a value with probability according to the distribution.
 
         This also progresses the task to the next stage."""
@@ -295,6 +298,9 @@ class Task:
         days = list(range(min_days, max_days + 1))
         stages = np.random.randint(1, max_stages + 1)
 
+        if max_stages > cls.MAX_STAGES:
+            raise ValueError(f"Stages must be at most {cls.MAX_STAGES}, not {max_stages}.")
+
         match prob_type:
             case "uniform":
                 duration_distribution = IntProbabilityDistribution(
@@ -329,7 +335,7 @@ class Task:
                             "Distribution of average and variance producing Erlang tasks with too many stages."
                         )
                 stages, lam = moments_to_erlang(mu=mu, var=var)
-                stages = min(5, max_stages)
+                stages = min(cls.MAX_STAGES, max_stages)
                 duration_distribution: ExponentialDistribution = ExponentialDistribution(lam=lam)
             case other:
                 raise ValueError(f"Probability type {other} not recognized")
@@ -357,6 +363,30 @@ class Task:
             duration_distribution=duration_distribution,
             dependencies=dependencies,
             stages=stages
+        )
+
+    @classmethod
+    def from_dict(cls, task_dict: dict) -> T:
+        """Create a task from a config dictionary."""
+
+        if task_dict["distribution"].lower() in ["erlang", "exponential"]:
+            probability_distribution = ExponentialDistribution(task_dict["avg_stage_duration"])
+        else:
+            raise ValueError(f"Memoryfull distributions currently not supported. Got {task_dict['distribution']}.")
+
+        if task_dict["distribution"].lower() == "exponential" and task_dict["stages"] > 1:
+            raise ValueError("Exponential distribution cannot have more than one stage. use 'erlang' instead.")
+
+        resource_requirements = {
+            Resource[resource]: amount for resource, amount in task_dict["resource_requirements"].items()
+        }
+
+        return cls(
+            task_id=task_dict["id"],
+            resource_requirements=resource_requirements,
+            duration_distribution=probability_distribution,
+            dependencies=task_dict["dependencies"],
+            stages=task_dict["stages"]
         )
 
 

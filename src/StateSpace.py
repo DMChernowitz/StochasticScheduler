@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib import patches as mpatches
 
 from src.Objects import Task, Resource, ExponentialDistribution
-from src.utils import make_arrow_coords, HandlerEllipse, HandlerArrow
+from src.utils import ArrowCoordMaker, HandlerEllipse, HandlerArrow
 
 S = TypeVar("S", bound="State")
 MS = TypeVar("MS", bound="MetaState")
@@ -547,7 +547,10 @@ class StateSpace:
             for i, state in enumerate(states):
                 state_positions[state] = (rank, i+1)
 
-        transition_annotations: Dict[Tuple[float, float], str] = {}  # initialize the annotations
+        transition_annotations: Dict[Tuple[float, float], List[str]] = {}  # initialize the annotations
+
+        # smart arrow coord maker, that doesn't allow vertical arrows to overlap.
+        arrow_maker = ArrowCoordMaker()
 
         # construct the arrows and their annotations
         sf_collections = {t: [] for t in transition_types}  # for the lines of task starting, finishing, progressing
@@ -555,10 +558,10 @@ class StateSpace:
         for state, transitions in graph.items():
             for lab_letter in transition_types:
                 for task_id, next_state in transitions[lab_letter]:
-                    arrow, (text_x,text_y) = make_arrow_coords(state_positions[state], state_positions[next_state])
+                    arrow, (text_x,text_y) = arrow_maker.make(state_positions[state], state_positions[next_state])
                     sf_collections[lab_letter].append(arrow)
-                    transition_annotations[(text_x, text_y)] = lab_letter+str(task_id)
-                    # check if arrow is contingency table choice, and if so, give it a different outline.
+                    transition_annotations.setdefault((text_x, text_y),[]).append(lab_letter+str(task_id))
+                    # check if arrow is contingency table choice, and if so, give it a different color.
                     if lab_letter == self.start and optimal_contingent(state, task_id):
                         contingent_starts.append(len(sf_collections[lab_letter])-1)
 
@@ -605,7 +608,7 @@ class StateSpace:
             bbox = dict(boxstyle="round", fc="0.8")
             state_button_contents = map(string_maker, state_positions.keys())
             for pos, label in transition_annotations.items():
-                ax.annotate(label, pos, bbox=bbox, fontsize=12,
+                ax.annotate("\n".join(label), pos, bbox=bbox, fontsize=12,
                             horizontalalignment='center',
                             verticalalignment='center')
         else:
@@ -619,7 +622,7 @@ class StateSpace:
                     horizontalalignment='center',
                     verticalalignment='center',
                     bbox={
-                        "boxstyle": "circle",
+                        "boxstyle": "circle",  # can be "ellipse" for more vertical space efficiency
                         "facecolor": col_dict.get(x, "grey"),
                         "edgecolor": "black"
                     }
