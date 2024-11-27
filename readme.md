@@ -446,16 +446,116 @@ The `Project` instance has the following properties:
 
 ## Policy.py
 
-This module contains two classes, `Policy` and `DynamicPolicy`, that are used to interact with the `Project` class. They are used to determine the timing of execution of tasks in the project.
+This module contains two classes, `Policy` and `DynamicPolicy`, that interact with the `Project` class. They are used to determine the timing of execution of tasks in the project.
 
 ### Policy
 
-The `Policy` class implements the classic functionality of a project scheduling policy. It has the following methods.
+The `Policy` class implements the classic static functionality of a project scheduling policy. It has the following methods.
 
+- `.__init__()`:  
+  - Usage:
+    - Initialize a Policy object for a given project.
+  - Arguments:
+    - `project`: The `Project` instance to which the policy applies.
+    - `policy`: The policy, a list of task ids in order of priority. Default is None, then it will be generated according to instructions.
+    - `policy_gen`: The method of generating the policy if it is None. Either "random" or "sequential". Default is "random".
+  - Returns:
+    - The initialized Policy object.
+- `.execute()`:  
+  - Usage:
+    - Execute the policy until all tasks are completed. Will change the state of all `Task` objects to finished.
+  - Arguments:
+    - None.
+  - Returns:
+    - The makespan, or total time taken to complete all tasks.
+- `get_gant_str()`:  
+  - Usage:
+    - Return a string representation of the Gantt chart of the policy
+    - Will only work after execution.
+  - Arguments:
+    - `n_times`: The number of time steps to display in the Gantt chart. Default is 100.
+  - Returns:
+    - A string representation of the Gantt chart.
+- `get_resource_chart()`:  
+  - Usage:
+    - Return a string representation of the usage of each resource over time.
+    - Will only work after execution.
+  - Arguments:
+    - `n_times`: The number of time steps to display in the resource chart. Default is 100.
+  - Returns:
+    - A string representation of the resource chart.
+- `__repr__()`:  
+  - Usage:
+    - What you get when you `print(policy)` after `policy = Policy(...)`.
+    - Shows the project, the policy, the Gantt chart, and resource usage chart.
+    - If called before execution, only the policy is shown.
+  - Arguments:
+    - None.
+  - Returns:
+    - a string representation of the Policy object.
 
+While these are the functions intended for user interaction, under the hood, it is interesting to explain two more methods, both called during execution.
 
+- `.evolve()`:  
+  - Usage:
+    - Execute one time step of the policy.
+      1. Every time step, moves forward in time to the next task that will finish or progress: the lowest new value in `future_task_progress`
+      2. Frees up the resources that task was occupying.
+      3. Updates the `state_sequence` with the new state.
+      4. Checks the policy for the next allowed task to start, and adds it to the `docket`. 
+      5. Removes the available resources from 
+      6. Queries their distributions for a realization, and schedules their completion in `future_task_progress`.
+  - Arguments:
+    - None.
+  - Returns:
+    - None.
+- `.choose_task_id()`:  
+  - Usage:
+    - Choose the highest ranked task of the policy that can be executed from the `remaining_policy` list.
+    - Considers resource availability and dependencies.
+    - removes the task from the `remaining_policy` list.
+  - Arguments:
+    - None.
+  - Returns:
+    - The task id of the chosen task, or None if no task can be executed. In the second case, the policy will wait until a task finishes.
 
+### DynamicPolicy
 
+The `DynamicPolicy` class is intended to carry out the CSDP in a simulation. Most of the logic and functionality it uses is, for reasons of convenience, housed in the `Project` class. Most notably, the contingency table. It has two methods:
+
+- `.__init__()`:  
+  - Usage:
+    - Initialize a DynamicPolicy object for a given project.
+  - Arguments:
+    - `project`: The `Project` instance to which the policy applies.
+  - Returns:
+    - The initialized DynamicPolicy object.
+- `.execute()`:  
+  - Usage:
+    - Execute the policy until all tasks are completed. Will change the state of all `Task` objects to finished.
+  - Arguments:
+    - None.
+  - Returns:
+    - The makespan, or total time taken to complete all tasks.
+
+The method of execution is described in the section _Contingent Stochastic Dynamic Programming_. Starting from the initial state, the `self.project.contingency_table` indicates which tasks to start.
+Until the state reaches the final state, the `execute` method always follows the council of the table, starting optimal tasks (with no delay) or waiting when no optimal task can be started.
+
+When waiting, the `StateSpace.get_wait_options` method 
+- constructs the composite exponential of all active tasks, 
+- samples it for a duration realization, 
+- randomly chooses an active task with probability commensurate with its rate.
+Then the state progresses to a neighboring state in the graph with that task progressed or finished.
+
+## StateSpace.py
+
+### State
+
+### StateSpace
+
+## Experiment.py
+
+### Experiment
 
 ## Sources
 ```

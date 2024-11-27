@@ -163,11 +163,11 @@ class Policy:
                 middle_string = " " * n_times
 
             gantt_list.append(task_str + middle_string + suffix)
-        gantt_list.append(self.get_time_axis(n_times))
+        gantt_list.append(self._get_time_axis(n_times))
 
         return "\n".join(gantt_list)
 
-    def get_time_axis(self, n_times: int) -> str:
+    def _get_time_axis(self, n_times: int) -> str:
         timescale = max(self.task_ids_progressed_per_time.keys(), default=0)
         return "Time : 0 " + "." * (n_times - 4) + " " + str(timescale)[:5]
 
@@ -198,7 +198,7 @@ class Policy:
                     else:
                         resource_graph[h_resource] += " "
             res_str += f"Requirement of {resource}:\n"
-            res_str += "\n".join(resource_graph[::-1]+[self.get_time_axis(n_times)])+"\n"
+            res_str += "\n".join(resource_graph[::-1] + [self._get_time_axis(n_times)]) + "\n"
         return res_str
 
     def __repr__(self):
