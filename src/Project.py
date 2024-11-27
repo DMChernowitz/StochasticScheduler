@@ -2,10 +2,8 @@ from typing import Dict, List, TypeVar, Set
 
 from src.Objects import Task, Resource
 from src.config import Config, RandomConfig, LiteralConfig
-from src.utils import format_table
+from src.utils import format_table, DiGraph
 from src.StateSpace import StateSpace, State
-
-import networkx as nx
 
 import numpy as np
 
@@ -20,7 +18,11 @@ class Project:
     It is used by Policy and Experiment classes. They have methods that can carry out the project.
     """
 
-    def __init__(self, task_list: List[Task], resource_capacities: Dict[Resource, int]):
+    def __init__(self,
+                 task_list: List[Task],
+                 resource_capacities: Dict[Resource, int],
+                 decision_quantile: float = 1-1/np.exp(1)
+                 ):
         """Initialise a project with tasks and resource capacities.
         Also checks if the inputs are valid and constructs the state space.
 
@@ -28,6 +30,8 @@ class Project:
             Tasks must have unique ids and dependencies: ids of other Tasks.
         :param resource_capacities: A dictionary with resources as keys and capacities as values:
             the total amount of each resource available concurrently.
+        :param decision_quantile: The quantile of the distribution to use in the CSDP algorithm.
+            default is 1-1/e, which in the exponential distribution coincides with the expected value.
         """
         self.task_list: List[Task] = sorted(task_list, key=lambda task: task.id)
         self.resource_capacities: Dict[Resource, int] = resource_capacities
@@ -37,10 +41,9 @@ class Project:
 
         self.average_duration: float = sum([task.average_duration for task in task_list])
         self.state_space: StateSpace = StateSpace(task_list, resource_capacities)
-        average_quantile = 1-1/np.exp(1)
         print(f"Creating project with {len(task_list)} tasks, "
               f"running stochastic Dijkstra's on it to find optimal contigent policy. ")
-        self.contingency_table = self.state_space.construct_shortest_path_length(decision_quantile=average_quantile)
+        self.contingency_table = self.state_space.construct_shortest_path_length(decision_quantile=decision_quantile)
 
         print(f"Expected duration of fastest path: {round(self.state_space.expected_duration,4)}")
         print("(multiply by -log(1-p) for quantile p duration of each task, instead of expected.)")
@@ -97,7 +100,7 @@ class Project:
 
     def __repr__(self):
         if len(self.task_list) < 10:
-            add_str: str = f"Number of topological orderings {self.n_topological_orderings}. \n"
+            add_str: str = f"\n# topological orderings due to dependencies: {self.n_topological_orderings}. \n"
         else:
             add_str: str = ""
 
@@ -125,7 +128,7 @@ class Project:
                 f"Project with tasks: \n{task_dict_repr} \n"
                 f"Resource capacities: ({resource_cap_str}), \n"
                 f"Sequential duration expectation {average_dur_str}, "
-                f"and state space of {len(self.state_space.states)} states.\n"
+                f"and state space of {len(self.state_space.states)} states."
                 f"{add_str}"
             "-------------------------------------------- \n"
         )
@@ -171,11 +174,14 @@ class Project:
 
         Computationally expensive for large projects.
         """
-        digraph = nx.DiGraph()
-        digraph.add_edges_from(
-            [(dep, task.id) for task in self.task_list for dep in task.dependencies]
-        )
-        return len(list(nx.all_topological_sorts(digraph)))
+        full_edges = [(dep, task.id) for task in self.task_list for dep in task.full_dependencies]
+
+        # would it be faster with the minimal amount of edges?
+        # minimal_edges = [(dep, task.id) for task in self.task_list for dep in task.minimal_dependencies]
+
+        mini_digraph = DiGraph(N=len(self.task_list), edges=full_edges)
+
+        return mini_digraph.n_topological_orders
 
     def prune_dependencies(self) -> None:
         """Remove dependencies from tasks that are already dependencies of dependencies. """

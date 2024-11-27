@@ -210,12 +210,6 @@ class Task:
                 f"and duration {self.duration_distribution}\n"
                 )
 
-    def activate(self):
-        """Start performing the task."""
-        if self.current_stage != 0:
-            raise ValueError("Cannot activate a task that's alreafy started")
-        self.current_stage = 1
-
     def duration_realization(self) -> Union[int,float]:
         """Sample the distribution of the task and return a value with probability according to the distribution.
 
@@ -243,10 +237,11 @@ class Task:
         """
         if isinstance(self.duration_distribution, ExponentialDistribution):
             return 0
-        return min(self.duration_distribution.values)*self.stages
+        elif isinstance(self.duration_distribution, IntProbabilityDistribution):
+            return min(self.duration_distribution.values)*self.stages
 
     @property
-    def maximal_duration(self) -> float:
+    def maximal_duration(self) -> Union[float,int]:
         """Return the maximal duration of the distribution of the task.
 
         For exponential distributions, this is infinity. (any continuous distribution with infinite support).
@@ -254,7 +249,8 @@ class Task:
         for discrete distributions, this is the largest value that is explicitely in the support."""
         if isinstance(self.duration_distribution, ExponentialDistribution):
             return np.inf
-        return max(self.duration_distribution.values)*self.stages
+        elif isinstance(self.duration_distribution, IntProbabilityDistribution):
+            return max(self.duration_distribution.values)*self.stages
 
     def stage_quantile_duration(self, p: float) -> float:
         """Return the p-quantile of the distribution of the task."""
@@ -370,7 +366,7 @@ class Task:
         """Create a task from a config dictionary."""
 
         if task_dict["distribution"].lower() in ["erlang", "exponential"]:
-            probability_distribution = ExponentialDistribution(task_dict["avg_stage_duration"])
+            probability_distribution = ExponentialDistribution(1/task_dict["avg_stage_duration"])
         else:
             raise ValueError(f"Memoryfull distributions currently not supported. Got {task_dict['distribution']}.")
 

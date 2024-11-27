@@ -109,7 +109,10 @@ class Experiment:
         plt.show()
 
     def calculate_p_value(self):
-        """Calculate the p-value of each individual policy being worse than dijkstra."""
+        """Calculate the p-value of each individual policy being worse than dijkstra.
+
+        Makes the approximation that the t distribution can be approximated by a normal distribution.
+        """
         if self.results_dict == {}:
             raise ValueError("Experiment has not been run yet")
         dijkstra_average = sum(self.results_dict["dijkstra"])/Config.n_runs

@@ -1,4 +1,4 @@
-from typing import List, Dict, Union, Tuple
+from typing import List, Dict, Union, Tuple, Literal
 
 from src.Project import Project
 from src.Objects import Resource, Task
@@ -6,15 +6,34 @@ from src.StateSpace import State
 
 from src.utils import str_of_length
 
+import numpy as np
+
 
 class Policy:
 
-    def __init__(self, project: Project, policy: List[int]):
+    def __init__(self,
+                 project: Project,
+                 policy: List[int] = None,
+                 policy_gen: Literal["random", "sequential"] = "random"
+                 ):
         """Initialise a policy for a given project.
 
         :param project: The project to which the policy applies.
         :param policy: The policy, a list of task ids in order of priority.
+        :param policy_gen: The method of generating the policy if it is 'None'. Either "random" or "sequential".
         """
+        if policy is None:
+            policy = list(range(len(project.task_list)))
+            if policy_gen == "random":
+                np.random.shuffle(policy)
+            elif policy_gen != "sequential":
+                raise ValueError("Policy generation method must be 'random' or 'sequential'.")
+        elif isinstance(policy, list):
+            if not set(policy) == set(range(len(project.task_list))):
+                raise ValueError("Policy must contain all task ids as integers.")
+        else:
+            raise ValueError("Policy must be a list of integers or None.")
+
         self.remaining_policy: List[int] = policy
         self.original_policy: List[int] = policy.copy()
         self.project: Project = project

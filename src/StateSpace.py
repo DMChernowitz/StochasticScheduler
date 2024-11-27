@@ -411,7 +411,10 @@ class StateSpace:
 
         return self.remaining_path_lengths[state]
 
-    def get_wait_options(self, state: State) -> Tuple[List[State],List[float], ExponentialDistribution]:
+    def get_wait_options(
+            self,
+            state: State
+    ) -> Tuple[List[State],List[float], ExponentialDistribution]:
         """return a list of possible states and the lambdas of their transitions."""
         if state not in self.graph:
             raise ValueError(f"State {state} not in state space")
@@ -475,6 +478,7 @@ class StateSpace:
             self,
             metastate_mode: bool = True,
             rich_annotations: bool = False,
+            add_times: bool = True
     ) -> None:
         """Create a graph of the state space, with states as vertices and transitions as edges.
 
@@ -560,7 +564,14 @@ class StateSpace:
                 for task_id, next_state in transitions[lab_letter]:
                     arrow, (text_x,text_y) = arrow_maker.make(state_positions[state], state_positions[next_state])
                     sf_collections[lab_letter].append(arrow)
-                    transition_annotations.setdefault((text_x, text_y),[]).append(lab_letter+str(task_id))
+                    arrow_annotation = lab_letter+str(task_id)
+                    if add_times and not metastate_mode:
+                        if lab_letter == self.start:
+                            arrow_annotation += " (t+0)"
+                        else:
+                            stage_duration = self.tasks[task_id].duration_distribution.quantile(self.decision_quantile)
+                            arrow_annotation += f" (t+{str(round(stage_duration,1))})"
+                    transition_annotations.setdefault((text_x, text_y),[]).append(arrow_annotation)
                     # check if arrow is contingency table choice, and if so, give it a different color.
                     if lab_letter == self.start and optimal_contingent(state, task_id):
                         contingent_starts.append(len(sf_collections[lab_letter])-1)
@@ -586,9 +597,7 @@ class StateSpace:
                     length_includes_head=True,
                 )
 
-
-
-        def suf_maker(x: Atom):
+        def suf_maker(x: Atom):  # suffix maker for the state buttons
             if metastate_mode:
                 return str(len(self.states_per_metastate[x]))
             return self.start
@@ -603,6 +612,8 @@ class StateSpace:
                 base_string = str(x)[1:-1]
                 if metastate_mode and variable_state_counts:
                     return " "+base_string + f" \n({(suf_maker(x))})"
+                elif add_times and not metastate_mode:
+                    return base_string + f" \nt={str(round(self.remaining_path_lengths[x],1))}"
                 return base_string
 
             bbox = dict(boxstyle="round", fc="0.8")
