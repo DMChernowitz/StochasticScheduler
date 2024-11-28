@@ -5,11 +5,12 @@ import numpy as np
 import matplotlib.patches as mpatches
 from matplotlib.legend_handler import HandlerPatch
 
+EXPONENTIAL_AVERAGE_QUANTILE = 1 - np.exp(-1)
+
 def str_of_length(s: Any, length: int) -> str:
     """Return a string of length length, padding with spaces if necessary"""
     _s = str(s)[:length]
     return _s + " " * (length - len(_s))
-
 
 def format_table(table: List[List[str]]) -> str:
     """Put together a table where the first row is the titles."""

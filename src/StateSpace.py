@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib import patches as mpatches
 
 from src.Objects import Task, Resource, ExponentialDistribution
-from src.utils import ArrowCoordMaker, HandlerEllipse, HandlerArrow
+from src.utils import ArrowCoordMaker, HandlerEllipse, HandlerArrow, EXPONENTIAL_AVERAGE_QUANTILE
 
 S = TypeVar("S", bound="State")
 MS = TypeVar("MS", bound="MetaState")
@@ -216,7 +216,7 @@ class StateSpace:
         self.remaining_path_lengths: Dict[State, Union[None, Union[float, int]]] = {}
         # set the decision rule for timing:
         self.decision_quantile: Union[float, None] = None
-        self.expected_duration: Union[float, None] = None
+        self.expected_makespan: Union[float, None] = None
 
         # initialize some graph structures
         self.contingency_table: Dict[State, Union[int, None]] = {}
@@ -229,13 +229,15 @@ class StateSpace:
         """Return a tuple of all states in the state space."""
         return tuple(self.graph.keys())
 
-    def descendants_of(self, state: State) -> List[Tuple[int, State]]:
-        """Return a list of possible transitions from a state, both due to starting and finishing tasks, after
-        the graph has been constructed."""
-        return sum(self.graph[state].values(), [])
-
     def _graph_from_tasks(self) -> Dict[State, Dict[str, List[Tuple[int, State]]]]:
-        """Construct the state space graph from the tasks using recursion."""
+        """Construct the state space graph from the tasks using recursion.
+
+        The structure of the output is nested dictionary. The outer layer is a dictionary with states as keys:
+        the states as vertices of the graph. The inner values are again dictionaries.
+        The inner dictionaries have the transition types as keys, "s", "p", and "f", for starting, progressing, and finishing.
+        The inner values are lists of tuples, where the first element is the task id that changes status/stage,
+        and the second element is the state that results from the transition.
+        """
         for h, task in enumerate(self.tasks):
             if h != task.id:
                 raise ValueError("Tasks must have ids equal to their index in the list")
@@ -306,28 +308,24 @@ class StateSpace:
         # no, because all possible orderings are explored.
         return result_containers
 
-    def check_path_length(self):
-        attempts = 1000
-        path_lengths = []
-        for _ in range(attempts):
-            state = self.states[0]
-            path_length = 0
-            while state != self.final_state and path_length < 1000:
-                state = random.choice(self.descendants_of(state))[1]
-                path_length += 1
-            path_lengths.append(path_length)
-        return path_lengths
-
-    def construct_shortest_path_length(self, decision_quantile: float = 0.5) -> Dict[State, Union[int, None]]:
+    def construct_contingency_table(self, decision_quantile: float = EXPONENTIAL_AVERAGE_QUANTILE) -> Dict[State, Union[int, None]]:
         """Perform first pass of stochastic dijkstra's algorithm
          to get the shortest expected path length to each state.
 
         Uses recursion, starting from the initial state, to find the expected duration to each state.
         This is done by adding the expected transition time to the expected duration of the next state.
+
+        The expected duration is stored in self.remaining_path_lengths, and the decision rule in self.contingency_table.
+        The state_space expected_makespan is the expected duration to reach the final state from the initial state.
+
+        This method is inteded to be called by the Project class.
+        returns the contingency table, which is the decision rule for each state:
+            what to do next if we find ourselves in that state.
+
+        :param decision_quantile: The quantile of the distribution to use in the CSDP algorithm. default is 1-1/e.
         """
-        self.remaining_path_lengths: Dict[State, Union[None, Union[float, int]]] = {
-            self.final_state: 0
-        }
+        # add the trivial first value to the hash table
+        self.remaining_path_lengths[self.final_state] = 0
         # The contingency table is the decision rule for each state: what to do next if we find ourselves in that state.
         self.contingency_table: Dict[State, Union[int, None]] = {self.final_state: None}
         self.decision_quantile = decision_quantile
@@ -338,7 +336,7 @@ class StateSpace:
             raise ValueError(f"Project has non-exponential tasks: Dijkstra not currently implemented")
 
         # by querying the initial state, we will recursively calculate the expected duration to reach all states
-        self.expected_duration = self.dynamic_step(self.initial_state)
+        self.expected_makespan = self.dynamic_step(self.initial_state)
         if self.wait_is_faster_states:
             print("It was faster to wait for a task to finish than "
                   f"to start a new one from {len(self.wait_is_faster_states)} out of {len(self.states)} states.")
@@ -356,7 +354,7 @@ class StateSpace:
 
         This duration depends on the state, the transition to its descendants, and the time from each descendant.
         Along the way, all durations from descendants are calculated and stored, recursively,
-        in self.remaining_path_lengths
+        in self.remaining_path_lengths. (Memoization)
 
         This is only implemented for exponential/erlang distributions, as the state space has no memory.
 
@@ -370,6 +368,7 @@ class StateSpace:
 
         This method uses the state space graph to know what the possible transitions are from each state.
         """
+        # memoization
         if state in self.remaining_path_lengths:
             # already calculated: escape now
             return self.remaining_path_lengths[state]
@@ -383,7 +382,7 @@ class StateSpace:
             )
         best_start_option = min(start_options, key=lambda x: x[1])
 
-        finish_options, lambdas_options, composite_exponential = self.get_wait_options(state)
+        finish_options, lambdas_options, composite_exponential = self._get_wait_options(state)
 
         if lambdas_options:  # There may be active tasks to finish
             # time until any task finishes is an exponential with the summed rate
@@ -415,7 +414,7 @@ class StateSpace:
 
         return self.remaining_path_lengths[state]
 
-    def get_wait_options(
+    def _get_wait_options(
             self,
             state: State
     ) -> Tuple[List[State],List[float], ExponentialDistribution]:
@@ -439,7 +438,7 @@ class StateSpace:
     def wait_for_finish(self, state: State) -> Dict[str, Union[float, State]]:
         """Simulate waiting for a task to finish and return the time and the state that results from it."""
 
-        next_states, lambdas, composite_exponential = self.get_wait_options(state)
+        next_states, lambdas, composite_exponential = self._get_wait_options(state)
         if not lambdas:
             raise ValueError(f"State {state} has no active tasks")
 

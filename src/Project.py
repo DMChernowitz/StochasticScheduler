@@ -2,10 +2,8 @@ from typing import Dict, List, TypeVar, Set
 
 from src.Objects import Task, Resource
 from src.config import Config, RandomConfig, LiteralConfig
-from src.utils import format_table, DiGraph
+from src.utils import format_table, DiGraph, EXPONENTIAL_AVERAGE_QUANTILE
 from src.StateSpace import StateSpace, State
-
-import numpy as np
 
 T = TypeVar("T", bound="Project")
 
@@ -21,7 +19,7 @@ class Project:
     def __init__(self,
                  task_list: List[Task],
                  resource_capacities: Dict[Resource, int],
-                 decision_quantile: float = 1-1/np.exp(1)
+                 decision_quantile: float = EXPONENTIAL_AVERAGE_QUANTILE
                  ):
         """Initialise a project with tasks and resource capacities.
         Also checks if the inputs are valid and constructs the state space.
@@ -43,9 +41,9 @@ class Project:
         self.state_space: StateSpace = StateSpace(task_list, resource_capacities)
         print(f"Creating project with {len(task_list)} tasks, "
               f"running stochastic Dijkstra's on it to find optimal contigent policy. ")
-        self.contingency_table = self.state_space.construct_shortest_path_length(decision_quantile=decision_quantile)
+        self.contingency_table = self.state_space.construct_contingency_table(decision_quantile=decision_quantile)
 
-        print(f"Expected duration of fastest path: {round(self.state_space.expected_duration,4)}")
+        print(f"Expected duration of fastest path: {round(self.state_space.expected_makespan, 4)}")
         print("(multiply by -log(1-p) for quantile p duration of each task, instead of expected.)")
 
     def print_contingency_table(self) -> None:

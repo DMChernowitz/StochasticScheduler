@@ -43,14 +43,14 @@ Let us return to the example project with 3 tasks. Assume we have have 1 unit of
 | 1       | 0            | 0                     |
 | 2       | -            | 1                     |
 
-The idea is to work in terms of the graph below, made with this repo.
+The idea is to work in terms of the graph below, made with this repo. (See `StateSpace.visualize_state_space()` in the [StateSpace docs](#statespace)).
 
 ![Toy Graph](readme_imgs/project_graph.png)
 
 This framework is particularly powerful when using exponentially distributed random variables, thanks to the memoryless property. This is what we get when we model the rate of probability for a task to finish as constant in time.
 For exponentials, and only exponentials, we do not need to keep track of how long a task has been running, which started first, etc. Each state is completely characterized by the set of tasks that are currently Active, Finished, or not yet started (Idle).
 
-In the graph, the state of each task is represented by a letter, and the project states are represented by triplets of letters. Transitions are arrows indicating which task starts or finishes. The term _metastate_, in short, means the tasks may have various stages of completion collected into one node. More in the next section. 
+In the graph, the state of each task is represented by a letter, and the project states are represented by triplets of letters. Transitions are arrows indicating which task starts or finishes. The term _metastate_, in short, means the tasks may have various stages of completion collected into one node. More in the [next subsection](#erlang-distributed-tasks). 
 
 ### Erlang Distributed Tasks
 
@@ -69,7 +69,7 @@ Despite the resource requirements, and dependency requirements per task, there i
 
 A policy is simply a permutation of the task indices. I.e. for tasks (0,1,2), a policy could be [2,0,1]. Executing it means always starting the first idle task in the list that is allowed by the constraints. If no task is allowed, we wait until an active one finishes, then return to the policy. It is clear that there are n! policies for n tasks, though in execution they might not all be unique, due to constraints. 
 
-They are also 'blind', not taking into account the history of the project. This is where the next section comes in.
+They are also 'blind', not taking into account the history of the project. This is where the [next subsection](#contingent-stochastic-dynamic-programming) comes in.
 
 ### Contingent Stochastic Dynamic Programming
 
@@ -80,7 +80,7 @@ In the graph first, this is represented by the red arrows. If a state has a red 
 
 The astute reader will notice that we cannot perform fully the second phase of traditional Dijkstra's. This is because at many vertices, we don't control which edge we take (which task finishes first). So we can't simply distill the shortest path from the potential landscape we constructed, and throw away the rest. During traversal, we need still need it.
 
-### Obtaining the state-space graph
+### Obtaining the State-Space Graph
 
 A necessary precursor to navigating the state-space, is mapping it out. A priori, we could imagine any state with any combination of idle, active, and finished tasks. In technical terms, with `n` states, the `n`-ary Cartesian product of the `n` individual task state spaces forms a superset of the project state space. But of course, many of these states are infeasible, and can be discarded. Evidently:
 - States are infeasible if the any of the cumulative resources required by active tasks exceed those available.
@@ -100,11 +100,12 @@ It is not clear whether there is a non-empty set of tasks that may be feasible u
 2. For each state found in steps 1.ii and 1.iv, repeat step 1 with it as the current state. If a state was current in an earlier iteration, skip it.
 3. When all states added have been current through steps 1.i-1.v once, the state space is complete. Terminate.
 
-In summary, task dependencies and resource availability determine the possible states, and the possible transitions. State-space is built recursively. The repo implements this in the module `src/StateSpace.py` with the method `StateSpace._graph_from_tasks()`. Once this graph is fully constructed, we can use it to fill out the CSDP contingency table.
+In summary, task dependencies and resource availability determine the possible states, and the possible transitions. State-space is built recursively. The repo implements this in the module `src/StateSpace.py` with the method `StateSpace._graph_from_tasks()`. 
+Once this graph is fully constructed, we can use it to fill out the CSDP contingency table. Or we can visualize it, see `StateSpace.visualize_state_space()` in the [StateSpace docs](#statespace).
 
-### Obtaining the contingency table
+### Obtaining the Contingency Table
 
-This section contains, in my eyes, the most important original contribution of the repo. I will explain obtaining the contingency table with the aid of a tiny toy project. There are two tasks, no constraints, and their durations are exponential / Erlang, tabulated below:
+This subsection contains, in my eyes, the most important original contribution of the repo. I will explain obtaining the contingency table with the aid of a tiny toy project. There are two tasks, no constraints, and their durations are exponential / Erlang, tabulated below:
 
 | Task id | # Stages | Avg. time per stage | Dependencies | Resource requirements |
 |---------|----------|---------------------|--------------|-----------------------|
@@ -160,7 +161,7 @@ After the first task finishes, we must add the expected time to finish of the re
 
     t(S| wait) = (1 + λ_b_1 * t(S;b_1) + λ_b_2 * t(S;b_2) + ... + λ_b_n * t(S;b_n) ) / (λ_b_1 + λ_b_2 + ... + λ_b_n)
 
-So, at each node, the recursive algorithm takes the set of tasks that can start, progress, or finish from the state space (see the previous section), and calls the `dynamic_step` function on each of them. It calculates the composite exponential (if applicable), and set the time-to-finish of the state as the minimum of the options. In the contingency table, we store what option that was.
+So, at each node, the recursive algorithm takes the set of tasks that can start, progress, or finish from the state space (see the [previous subsection](#obtaining-the-state-space-graph)), and calls the `dynamic_step` function on each of them. It calculates the composite exponential (if applicable), and set the time-to-finish of the state as the minimum of the options. In the contingency table, we store what option that was.
 
 This example produces the Contingency table:
 
@@ -183,7 +184,7 @@ This example produces the Contingency table:
 N.B. in the code, whenever a distribution is queried for its expectation, instead we take a quantile, this quantile is set globally for all tasks. Formally, this is, of course, nonsense, because there is no linearity of quantiles property in statistics. But it allows for more freedom to run a heuristic algorithm of the same shape in 'optimistic' or 'worst-case-scenario' planning mode, by setting it to a high or low quantile.
 Moreover, for exponential distributions, there is a specific quantile that coincides with the expectation: 1-1/e. It is independent of the rate parameter λ. This is the default value, and by choosing it, we recover exactly the math from above.
 
-Now that the theory is explained: how should one use these tools? On to the next section.
+Now that the theory is explained: how should one use these tools? On to the [next section](#getting-started).
 
 ## Getting Started
 
@@ -201,14 +202,14 @@ The basic flow of this repo is:
 
 The main modules in `src` are:
 
-- `Project.py`
-- `Policy.py`
-- `StateSpace.py`
+- `Project.py`: [Project docs](#projectpy)
+- `Policy.py`: [Policy docs](#policypy)
+- `StateSpace.py`: [StateSpace docs](#statespacepy)
 
 and less fundamental:
-- `Experiment.py`,
+- `Experiment.py`: [Experiment docs](#experimentpy)
 
-which all borrow from the `Objects.py` classes:
+which all borrow from the `Objects.py` classes: 
 
 - `Task`
 - `Resource`
@@ -369,7 +370,7 @@ The central distribution of this repo. Used for exponentially distributed tasks,
 
 The `Project` class is the main bookkeeping object of the repo. It collects all the moving parts needed to describe an idealized scheduling project.
 
-The `Policy`, `DynamicPolicy`, and `Experiment` classes are created to interact with the `Project` class. It in turn leverages the `StateSpace` and `Task` classes.
+The `Policy` ([docs](#policy)), `DynamicPolicy` ([docs](#dynamicpolicy)), and `Experiment` ([docs](#experiment)) classes are created to interact with the `Project` class. It in turn leverages the `StateSpace` ([docs](#statespace)) and `Task` ([docs](#task)) classes.
 
 ### Project
 
@@ -446,7 +447,7 @@ The `Project` instance has the following properties:
 
 ## Policy.py
 
-This module contains two classes, `Policy` and `DynamicPolicy`, that interact with the `Project` class. They are used to determine the timing of execution of tasks in the project.
+This module contains two classes, `Policy` and `DynamicPolicy`, that interact with the `Project` class ([docs](#project)). They are used to determine the timing of execution of tasks in the project.
 
 ### Policy
 
@@ -538,10 +539,10 @@ The `DynamicPolicy` class is intended to carry out the CSDP in a simulation. Mos
   - Returns:
     - The makespan, or total time taken to complete all tasks.
 
-The method of execution is described in the section _Contingent Stochastic Dynamic Programming_. Starting from the initial state, the `self.project.contingency_table` indicates which tasks to start.
+The method of execution is described in the section [Contingent Stochastic Dynamic Programming](#contingent-stochastic-dynamic-programming). Starting from the initial state, the `self.project.contingency_table` indicates which tasks to start.
 Until the state reaches the final state, the `execute` method always follows the council of the table, starting optimal tasks (with no delay) or waiting when no optimal task can be started.
 
-When waiting, the `StateSpace.get_wait_options` method 
+When waiting, the `StateSpace.wait_for_finish` method 
 - constructs the composite exponential of all active tasks, 
 - samples it for a duration realization, 
 - randomly chooses an active task with probability commensurate with its rate.
@@ -549,9 +550,9 @@ Then the state progresses to a neighboring state in the graph with that task pro
 
 ## StateSpace.py
 
-The state-space module contains a large amount of the logic of the repo. Despite the fact that the user may not directly interact with this class, but more through the `Policy` and `Project` classes, it is instructive to understand the methods and properties of the `StateSpace` and `State` classes. 
+The state-space module contains a large amount of the logic of the repo. Despite the fact that the user may not directly interact with this class, but more through the `Policy` ([docs](#policy)) and `Project` ([docs](#project)) classes, it is instructive to understand the methods and properties of the `StateSpace` and `State` classes. 
 
-They are used to model the constituents and transitions of the project execution, following the theory of the section _Statespace Graph Framework..._.
+They are used to model the constituents and transitions of the project execution, following the theory of the section on the [Statespace Graph Framework](#statespace-graph-framework-and-memoryless-tasks).
 
 ### State
 
@@ -630,430 +631,105 @@ This comparison convention tends to call states 'greater', that has the task wit
 
 ### StateSpace
 
-### MeteState
+This class is the engine of the repo. It constructs and holds the topology of the project state space graph, and the methods to traverse it. It has the following methods:
+
+- `.__init__()`:  
+  - Usage:
+    - Initialize a StateSpace object for a given project.
+    - Construct the state space graph, which is a dictionary of states, each with a dictionary of possible transitions, in `._graph_from_tasks()` See also [Obtaining the State-Space Graph](#obtaining-the-state-space-graph).
+  - Arguments:
+    - `tasks`: an ordered list of `Task` objects, the tasks of the project.
+    - `resource_capacities`: a dictionary with `Resource` objects as keys and integers as values, the capacities of the resources.
+  - Returns:
+    - The initialized StateSpace object.
+- `.construct_contingency_table()`:  
+  - Usage:
+    - Construct the contingency table of the project. See also the subsection [Obtaining the Contingency Table](#obtaining-the-contingency-table).
+    - This table informs the `DynamicPolicy` class on which tasks to start from which states, or to wait.
+    - This method is called by the initialization of the `Project` class, so the contingency table can be stored as a property of the project.
+  - Arguments:
+    - `decision_quantile`: a float, the quantile to use for decision-making in the CSDP. Default is 1-1/e, which turns the quantile into the expectation for exponential distributions. For the median, choose 0.5.
+  - Returns:
+    - The contingency table, a dictionary with `State` instances as keys, and integers (task ids) as values.
+
+- `.dynamic_step()`:  
+  - Usage:
+    - Execute one step of the CSDP algorithm. See also the subsection [Obtaining the Contingency Table](#obtaining-the-contingency-table).
+    - Calculate the expected time-to-finish of the state, contingent on starting a task, or waiting.
+    - Memoization: update the `remaining_path_lengths` dictionary with the expected time-to-finish of the state.
+    - Calls itself recursively on all states the input state can transition to. If memoized, escapes immediately.
+    - Update the `contingency_table` with the optimal transition if definite.
+  - Arguments:
+    - `state`: a `State` object, the state for which to calculate the expected time-to-finish.
+  - Returns:
+    - the time-to-finish t of the state, contingent on the optimal decision.
+- `._graph_from_tasks()`:  
+  - Usage:
+    - Construct the state space graph from the tasks using recursion. See also [Obtaining the State-Space Graph](#obtaining-the-state-space-graph).
+    - For each new state, get its descendants. They are divided into sets, depending on the type of transition: start, progress, or finish.
+    - Each set is described by a list of new states, and the task that changed status to reach them.
+    - E.g. `dict(state1= {"s": [(task_id3, state3), ...], "p": [(task_id4, state4), ...], "f": [(task_id5, state5), ...]}, state2=...)`
+    - Main internal function is `._get_descendants()`.
+  - Arguments:
+    - None.
+  - Returns:
+    - A nested dictionary describing the state space.
+- `._get_descendants()`:  
+  - Usage:
+    - Return the possible transitions from a state, both due to starting, progressing, and finishing tasks.
+    - A transition is possible if the status of exactly one task is different, going from waiting to active, progressing to the next stage, or from active to finished.
+    - Moreover, a task can only start if all its dependencies are finished, and if there are enough resources available for the task along with all other active tasks.
+    - Active tasks can always progress, and can thus finish if in their final stage.
+  - Arguments:
+    - `state`: a `State` object, the state from which to find the possible transitions.
+  - Returns:
+    - A dictionary with three keys, "s", "p" and "f", each with a list of tuples.
+    - The first element of each tuple is the task id that changes status/stage.
+    - The second element is the state that results from the transition.
+- `._resources_available()`:  
+  - Usage:
+    - Return the resources available, i.e. the difference between the resource capacities and the total resources used by the state.
+  - Arguments:
+    - `state`: a `State` object, the state for which to calculate the available resources.
+  - Returns:
+    - A dictionary with `Resource` objects as keys and integers as values, the unused resources available.
+- `.wait_for_finish()`:  
+  - Usage:
+    - Simulate waiting for a task to finish and return the time and the state that results from it.
+    - This is a helper function for the `DynamicPolicy` class.
+  - Arguments:
+    - `state`: a `State` object, the state for which to calculate the possible transitions. Must have at least one active task.
+  - Returns:
+    - A dictionary with two keys, "time" and "state". As values a float: the realization, and a `State` object, the resulting state, respectively.
 
 
-    finished = "f"
-    # The extreme stages are 0 and f, all other stages are 'active' and have a rank of 1
-    rank_mapping = {
-        0: 0,
-        finished: 2,
-    }
 
-    def __init__(
-            self,
-            total_stages: Iterable[int],
-            current_stages: Iterable[Union[int,str]] = None,
-            error_check: bool = True
-    ):
-        """Initialise a state of a project. It has an entry for each task in the project.
 
-        The entries are numbers for the progress of the state.
-        0 is waiting
-        1-n is active, in the stages of a task with n stages
-        f is finished.
 
-        :param total_stages: The total stages per task that need to be traversed for the task to be finished,
-            in order or task id
-        :param current_stages: The current stage of each task, in order of task_id
-        :param error_check: When constructing the state from outside, raise errors if params incorrectly configured.
-            For speed, when a state produces another state, this can be skipped.
-        """
-        self.current_stages = tuple(current_stages)
-        self.total_stages = tuple(total_stages)
 
-        # initialize the lexicographic position of the state, as a unique identifier inside its state space
-        self._lexicographic_position = None
+- `.get_wait_options()`:  
+  - Usage:
+    - Auxiliary function.
+    - For a state, find the options that can result from waiting for a tasks to finish.
+    - Return useful objects for evolving or navigating through such transitions.
+  - Arguments:
+    - `state`: a `State` object, the state for which to calculate the possible transitions.
+  - Returns:
+    - A tuple with three elements:
+      - A list of `State` objects, the possible states that can be reached.
+      - A list of floats, the rates (λ) of the exponential distributions of the tasks that are active in the state.
+      - An `ExponentialDistribution` object, the composite exponential distribution of the active tasks: its rate is the sum of the rates of the active tasks.
 
-        if error_check:
-            self._error_check()
-
-    def _error_check(self):
-            if not (lts := len(self.total_stages)) == (lcs := len(self.current_stages)):
-                raise ValueError(f"Require 1 current and 1 total stage per task. Got {lcs} current and {lts} total stages.")
-
-            for current_stage, total_stage in zip(self.current_stages,self.total_stages):
-                if not isinstance(total_stage, int) or not 0 < total_stage < 9:
-                    raise ValueError("Total stages must be integers in [1,8]")
-                if isinstance(current_stage, int):
-                    if not 0 <= current_stage <= total_stage:
-                        raise ValueError(f"Current stages must be in [0,total stage] or '{self.finished}'.")
-                elif current_stage != self.finished:
-                    raise ValueError(f"Non-integer current stages must be '{self.finished}' for finished tasks.")
-
-    @classmethod
-    def rank_from_stage(cls, stage: Union[int,str]):
-        return cls.rank_mapping.get(stage, 1)
-
-    def progress_task(self, task_id: int) -> S:
-        """Return the state that results from progressing a task at a given index. Could be finishing it."""
-        if self.current_stages[task_id] == self.finished:
-            raise ValueError("Finished tasks cannot be progressed.")
-        new_stati = list(self.current_stages)
-        if new_stati[task_id] == self.total_stages[task_id]:
-            new_stati[task_id] = self.finished
-        else:
-            new_stati[task_id] += 1
-        return State(
-            total_stages=self.total_stages,
-            current_stages=new_stati,
-            error_check=False
-        )
-
-    def copy(self):
-        """Return a copy of the state."""
-        return State(self.total_stages, self.current_stages, error_check=False)
-
-    @property
-    def is_initial(self) -> bool:
-        """Return True if the state is the initial state of the project, i.e. all tasks waiting to begin."""
-        return all(c == 0 for c in self.current_stages)
-
-    @property
-    def is_final(self) -> bool:
-        """Return True if the state is the final state of the project, i.e. all tasks finished."""
-        return all(c == self.finished for c in self.current_stages)
-
-    def task_complete(self, index) -> bool:
-        """Return True if the task at index is finished."""
-        return self.current_stages[index] == self.finished
-
-    def __iter__(self):
-        return iter(self.current_stages)
-
-    def __getitem__(self, key):
-        return self.current_stages[key]
-
-    def __len__(self):
-        return len(self.current_stages)
-
-    def __hash__(self):
-        return hash(self.current_stages)
-
-    def __eq__(self, other):
-        return self.current_stages == other.current_stages and self.total_stages == other.total_stages
-
-    def __repr__(self):
-        extremes = [self.finished]
-        str_rep = [str(c) if c in extremes else f"{c}/{t}" for c, t in zip(self.current_stages, self.total_stages)]
-        return "<"+"|".join(str_rep)+">"
-
-    def __lt__(self, other):
-        return self.lexicographic_position < other.lexicographic_position
-
-    def __gt__(self, other):
-        return self.lexicographic_position > other.lexicographic_position
-
-    @property
-    def rank(self) -> int:
-        """Return the depth of the state in the state space graph: number of vertices traversed to reach it."""
-        return sum(map(self.rank_from_stage, self.current_stages))
-
-    def dependencies_finished(self, task: Task) -> bool:
-        """Return True if all dependencies of a task are finished in this state."""
-        return all(self[dep] == self.finished for dep in task.minimal_dependencies)
-
-    def resources_used(self, task_list: List[Task]) -> Dict[Resource, int]:
-        """Return the resources used by the active tasks in the state."""
-        currently_active = [i for i, s in enumerate(self) if s not in self.rank_mapping]
-        return {
-            resource:
-                sum(task_list[h].resource_requirements.get(resource, 0) for h in currently_active)
-            for resource in Resource
-        }
-
-    @property
-    def lexicographic_position(self) -> int:
-        """Return the unique lexicographic position of the state inside its state space.
-
-        Initial state is 0, and the final state is the largest one.
-        """
-        if self._lexicographic_position is None:
-            self._lexicographic_position = 0
-            running_digit_size = 1
-            for current_stage, max_stage in zip(
-                    self.current_stages,
-                    self.total_stages):
-                current_digit = max_stage + 1 if current_stage == self.finished else current_stage
-                self._lexicographic_position += current_digit * running_digit_size
-                running_digit_size *= max_stage + 1
-        return self._lexicographic_position
+### MetaState
 
 
 class StateSpace:
     """Hold the possible states in the state space of the project.
 
-    Also keeps track of the possible transitions between states, the graph topology, and the expected duration to reach
-    each state.
-    """
-
-    start = "s"
-    finish = "f"
-    progress = "p"
-    transition_types = [start, finish, progress]
-
-    def __init__(self, tasks: List[Task], resource_capacities: Dict[Resource, int]):
-        """Initialise a state space with tasks and resource capacities.
-
-        Also construct the state space graph, which is a dictionary of states,
-            each with a dictionary of possible transitions.
-
-        These are necessary because prerequisites and resource requirements determine the possible transitions
-            and possible simultaneously active tasks.
-
-        :param tasks: A list of tasks, using the Task class.
-        :param resource_capacities: A dictionary with resources as keys and capacities as values
-        """
-        self.wait_is_faster_states = None  # States from which it is faster to wait for a task to finish
-        # than to start a new one, despite resources being available: curious situation, worth keeping track
-
-        self.tasks = tasks
-        self.resource_capacities = resource_capacities
-
-        total_stages = [task.stages for task in tasks]
-
-        self.initial_state = State(total_stages=total_stages, current_stages=[0]*len(tasks))
-        self.final_state = State(total_stages=total_stages, current_stages=[State.finished]*len(tasks))
-
-        # transitions: can only be a single change, from waiting to active, or from active to finished
-        # and from waiting to active, only dependent on the resources available
-        # and contingent on dependencies being finished
-        self.graph: Dict[State, Dict[str, List[Tuple[int, State]]]] = self._graph_from_tasks()
-
-        # initialize a hash table for the path lengths
-        self.remaining_path_lengths: Dict[State, Union[None, Union[float, int]]] = {}
-        # set the decision rule for timing:
-        self.decision_quantile: Union[float, None] = None
-        self.expected_duration: Union[float, None] = None
-
-        # initialize some graph structures
-        self.contingency_table: Dict[State, Union[int, None]] = {}
-        self.metagraph: Dict[MetaState, Dict[str, List[Tuple[int, MetaState]]]] = {}
-        self.states_per_metastate: Dict[MetaState, List[State]] = {}
-        self.meta_contingency_table: Dict[MetaState, List[int]] = {}
-
     @property
     def states(self) -> Tuple[State]:
         """Return a tuple of all states in the state space."""
         return tuple(self.graph.keys())
-
-    def descendants_of(self, state: State) -> List[Tuple[int, State]]:
-        """Return a list of possible transitions from a state, both due to starting and finishing tasks, after
-        the graph has been constructed."""
-        return sum(self.graph[state].values(), [])
-
-    def _graph_from_tasks(self) -> Dict[State, Dict[str, List[Tuple[int, State]]]]:
-        """Construct the state space graph from the tasks using recursion."""
-        for h, task in enumerate(self.tasks):
-            if h != task.id:
-                raise ValueError("Tasks must have ids equal to their index in the list")
-
-        states = [self.initial_state]
-        to_do_states = [self.initial_state]
-        graph: Dict[State, Dict[str, List[Tuple[int, State]]]] = {}
-        # now for each new state, get its descendants. If they are not in the list of states, add them
-        # and add the transition to the graph
-        while len(to_do_states) > 0:
-            state = to_do_states.pop()  # take the next state on the docket
-            descendants = self._get_descendants(state)
-            graph[state] = descendants
-            for index, descendant in sum(descendants.values(), []):
-                if descendant not in states:
-                    # all states are added to to_do_states exactly once, and
-                    # are removed from it as we work through the list
-                    to_do_states.append(descendant)
-                    states.append(descendant)
-        return graph
-
-    def _resources_available(self, state: State) -> Dict[Resource, int]:
-        """Return the resources available in a state."""
-        resources_used = state.resources_used(self.tasks)
-        return {
-            resource: self.resource_capacities[resource] - resources_used[resource] for resource in Resource
-        }
-
-    def _get_descendants(self, state: State) -> Dict[str, List[Tuple[int, State]]]:
-        """Return the possible transitions from a state, both due to starting and finishing tasks.
-
-        A transition is possible if the status of exactly one task is different, going from waiting to active,
-        progressing to the next stage, or from active to finished.
-        Moreover, a task can only start if all its dependencies are finished,
-        and if there are enough resources available for the task along with all other active tasks.
-        Active tasks can always progress, and can thus finish. This simply takes time, but that is not modelled here.
-
-        :param state: The state from which to find the possible transitions.
-
-        :return: A dictionary with three keys, "s", "p" and "f", each with a list of tuples.
-            The first element of the tuple is the task id that changes status/stage.
-            The second element is the state that results from the transition.
-        """
-        extreme_stages = [0, State.finished]
-
-        # initialize result containers
-        result_containers: Dict[str, List[Tuple[int, State]]] = {t: [] for t in self.transition_types}
-        # started/progressed/finished: List[Tuple[int, State]] = []  # (task_id, state)
-
-        resources_available: Dict[Resource, int] = self._resources_available(state)
-        for h, j in enumerate(state):
-            if (
-                    j == 0  # task is waiting
-                    and
-                    state.dependencies_finished(self.tasks[h])  # all dependencies are finished
-                    and
-                    self.tasks[h].enough_resources(resources_available)  # enough resources available
-            ):
-                result_containers[self.start].append((h, state.progress_task(h)))
-            elif j not in extreme_stages:  # task is active
-                next_state = state.progress_task(h)
-                if next_state[h] == State.finished:  # was in the final stage
-                    result_containers[self.finish].append((h, next_state))
-                else:  # was in an intermediate stage
-                    result_containers[self.progress].append((h, next_state))
-        # can there be states that are allowed (for dependencies and resources),
-        # but are still not reached in this branching?
-        # no, because all possible orderings are explored.
-        return result_containers
-
-    def check_path_length(self):
-        attempts = 1000
-        path_lengths = []
-        for _ in range(attempts):
-            state = self.states[0]
-            path_length = 0
-            while state != self.final_state and path_length < 1000:
-                state = random.choice(self.descendants_of(state))[1]
-                path_length += 1
-            path_lengths.append(path_length)
-        return path_lengths
-
-    def construct_shortest_path_length(self, decision_quantile: float = 0.5) -> Dict[State, Union[int, None]]:
-        """Perform first pass of stochastic dijkstra's algorithm
-         to get the shortest expected path length to each state.
-
-        Uses recursion, starting from the initial state, to find the expected duration to each state.
-        This is done by adding the expected transition time to the expected duration of the next state.
-        """
-        self.remaining_path_lengths: Dict[State, Union[None, Union[float, int]]] = {
-            self.final_state: 0
-        }
-        # The contingency table is the decision rule for each state: what to do next if we find ourselves in that state.
-        self.contingency_table: Dict[State, Union[int, None]] = {self.final_state: None}
-        self.decision_quantile = decision_quantile
-
-        self.wait_is_faster_states = []  # reset list of states from which waiting is faster than starting a new task
-
-        if not all([isinstance(task.duration_distribution, ExponentialDistribution) for task in self.tasks]):
-            raise ValueError(f"Project has non-exponential tasks: Dijkstra not currently implemented")
-
-        # by querying the initial state, we will recursively calculate the expected duration to reach all states
-        self.expected_duration = self.dynamic_step(self.initial_state)
-        if self.wait_is_faster_states:
-            print("It was faster to wait for a task to finish than "
-                  f"to start a new one from {len(self.wait_is_faster_states)} out of {len(self.states)} states.")
-        else:
-            print(f"This project has {len(self.states)} states "
-                  "and it is always fastest to start at least one task when possible.")
-
-        return self.contingency_table
-
-    def dynamic_step(
-            self,
-            state,
-    ):
-        """Recursion step. Returns the expected duration to reach the final state from a given state.
-
-        This duration depends on the state, the transition to its descendants, and the time from each descendant.
-        Along the way, all durations from descendants are calculated and stored, recursively,
-        in self.remaining_path_lengths
-
-        This is only implemented for exponential/erlang distributions, as the state space has no memory.
-
-        If the path length to a state has already been calculated in a different branch, it is returned immediately.
-
-        Else, enumerate the possible transitions from the state, and calculate the expected duration to reach each
-
-        There are two types of transitions:
-        - starting a task: this takes no time, but the state changes
-        - finishing a task: we must wait for the task to finish for the state to change.
-
-        This method uses the state space graph to know what the possible transitions are from each state.
-        """
-        if state in self.remaining_path_lengths:
-            # already calculated: escape now
-            return self.remaining_path_lengths[state]
-
-        # initialize the duration to reach this state
-        start_options: List[Tuple[Union[int, None], float]] = [(None, np.inf)]  # (task_id, time)
-        for start_state in self.graph[state][self.start]:
-            # starting a task takes no time
-            start_options.append(
-                (start_state[0], self.dynamic_step(start_state[1]))
-            )
-        best_start_option = min(start_options, key=lambda x: x[1])
-
-        finish_options, lambdas_options, composite_exponential = self.get_wait_options(state)
-
-        if lambdas_options:  # There may be active tasks to finish
-            # time until any task finishes is an exponential with the summed rate
-            wait_time: float = composite_exponential.quantile(self.decision_quantile)
-
-            # probability (ergo weight) of each task finishing first is proportional to its rate
-            # and the expected time is then the sum over expected times contingent on each task finishing first
-            # times the probability of that task finishing first
-            wait_option: float = wait_time + sum(
-                lam * self.dynamic_step(option) for lam, option in zip(lambdas_options, finish_options)
-            ) / composite_exponential.lam
-        else:
-            # if there's no task to finish, we can wait forever
-            wait_option = np.inf
-
-        # there will always be a start option or a physical wait option,
-        # or else we're in a final state, which doesn't reach this code
-        if best_start_option[1] <= wait_option:
-            # duration
-            self.remaining_path_lengths[state]: Union[int, float] = best_start_option[1]
-            # which task to start
-            self.contingency_table[state]: int = best_start_option[0]
-        else:
-            self.remaining_path_lengths[state]: Union[int, float] = wait_option
-            # don't start a task, but wait for one to finish
-            self.contingency_table[state]: None = None
-            if wait_option < np.inf and best_start_option[1] < np.inf:
-                self.wait_is_faster_states.append(state)
-
-        return self.remaining_path_lengths[state]
-
-    def get_wait_options(
-            self,
-            state: State
-    ) -> Tuple[List[State],List[float], ExponentialDistribution]:
-        """return a list of possible states and the lambdas of their transitions."""
-        if state not in self.graph:
-            raise ValueError(f"State {state} not in state space")
-
-        progress_and_finish = self.graph[state][self.progress] + self.graph[state][self.finish]
-
-        if not progress_and_finish:  # no active tasks
-            return [], [], ExponentialDistribution(1)
-
-        lambdas, next_states = zip(
-            *[(self.tasks[task_id].duration_distribution.lam, next_state)
-              for task_id, next_state in progress_and_finish])
-
-        composite_exponential = ExponentialDistribution(sum(lambdas))
-
-        return next_states, lambdas, composite_exponential
-
-    def wait_for_finish(self, state: State) -> Dict[str, Union[float, State]]:
-        """Simulate waiting for a task to finish and return the time and the state that results from it."""
-
-        next_states, lambdas, composite_exponential = self.get_wait_options(state)
-        if not lambdas:
-            raise ValueError(f"State {state} has no active tasks")
-
-        wait_time = composite_exponential.realization()
-        new_state_n = np.random.choice(len(next_states), p=[lam / composite_exponential.lam for lam in lambdas])
-        return {"time": wait_time, "state": next_states[new_state_n]}
 
     def get_metastate_graph(self):
         """Create a graph of the metastates of the state space. Collect states with the same active tasks."""
