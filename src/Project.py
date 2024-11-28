@@ -58,11 +58,25 @@ class Project:
         print("At all other states, no task can / should be started.")
         print("------------------------------------------------------")
 
-    def visualize_state_space(self,
+    def visualize_state_space(
+            self,
             metastate_mode: bool = True,
-            rich_annotations: bool = False
-                              ) -> None:
-        self.state_space.visualize_graph(metastate_mode=metastate_mode, rich_annotations=rich_annotations)
+            rich_annotations: bool = False,
+            add_times: bool = False
+    ) -> None:
+        """Visualize the state space of the project as a graph.
+
+        :param metastate_mode: If True, the graph will show metastates (states with the same tasks in progress).
+        :param rich_annotations: If True, the graph will show the task ids of transitions, and the status of each task
+            inside the state buttons. If False, only show the number of tasks in the metastate.
+        :param add_times: If True, the graph will show the expected time to finish from each state, and the expected
+            time to completion of each transition, if rich_annotations is also True. Only works outside metastate_mode.
+        """
+        self.state_space.visualize_graph(
+            metastate_mode=metastate_mode,
+            rich_annotations=rich_annotations,
+            add_times=add_times
+        )
 
     @property
     def max_time(self) -> int:

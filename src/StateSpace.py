@@ -446,7 +446,7 @@ class StateSpace:
         new_state_n = np.random.choice(len(next_states), p=[lam / composite_exponential.lam for lam in lambdas])
         return {"time": wait_time, "state": next_states[new_state_n]}
 
-    def get_metastate_graph(self):
+    def construct_metastate_graph(self):
         """Create a graph of the metastates of the state space. Collect states with the same active tasks."""
         if self.graph == {}:
             raise ValueError("State space graph is empty. Construct it first.")
@@ -503,10 +503,14 @@ class StateSpace:
             a flag of idle, active, or finished tasks, in metastate mode. Inadviseable for large projects.
             if metastate_mode is False, the stage of each task is shown.
             if False, the number of states in the metastate is printed, or if metastate_mode is False, simply 's'.
+        :param add_times: If True, add to the arrow annotations the expected time to reach the next state,
+            and to states the expected time to reach the final state. Only has an effect if metastate_mode is False.
         """
 
+        time_decimals = 1
+
         if metastate_mode:
-            self.get_metastate_graph()  # construct the graph with vertices collections of similar states
+            self.construct_metastate_graph()  # construct the graph with vertices collections of similar states
             Atom = MetaState  # the smallest class to group on
             graph = self.metagraph
             transition_types = [t for t in self.transition_types if t != self.progress]
@@ -573,7 +577,7 @@ class StateSpace:
                             arrow_annotation += " (t+0)"
                         else:
                             stage_duration = self.tasks[task_id].duration_distribution.quantile(self.decision_quantile)
-                            arrow_annotation += f" (t+{str(round(stage_duration,1))})"
+                            arrow_annotation += f" (t+{str(round(stage_duration,time_decimals))})"
                     transition_annotations.setdefault((text_x, text_y),[]).append(arrow_annotation)
                     # check if arrow is contingency table choice, and if so, give it a different color.
                     if lab_letter == self.start and optimal_contingent(state, task_id):
@@ -616,7 +620,7 @@ class StateSpace:
                 if metastate_mode and variable_state_counts:
                     return " "+base_string + f" \n({(suf_maker(x))})"
                 elif add_times and not metastate_mode:
-                    return base_string + f" \nt={str(round(self.remaining_path_lengths[x],1))}"
+                    return base_string + f" \nt={str(round(self.remaining_path_lengths[x],time_decimals))}"
                 return base_string
 
             bbox = dict(boxstyle="round", fc="0.8")
