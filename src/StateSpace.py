@@ -51,6 +51,7 @@ class State:
         self.total_stages = tuple(total_stages)
 
         # initialize the lexicographic position of the state, as a unique identifier inside its state space
+        # will use a mixed radix number system with the total stages (+1) as the radix
         self._lexicographic_position = None
 
         if error_check:
@@ -152,9 +153,12 @@ class State:
 
     @property
     def lexicographic_position(self) -> int:
-        """Return the unique lexicographic position of the state inside its state space.
+        """Set and return the unique lexicographic position of the state inside its state space.
 
-        Initial state is 0, and the final state is the largest one.
+        Initial state in the state-space is 0, and the final state is the largest one.
+
+        mixed radix number system:
+        # per task a digit, radix is #stages+1
         """
         if self._lexicographic_position is None:
             self._lexicographic_position = 0
@@ -705,6 +709,7 @@ class MetaState:
         self.finished_states = tuple(sorted(finished_states))
         self.n_tasks = len(self.waiting_states) + len(self.active_states) + len(self.finished_states)
 
+        # mapping from the state to a unique integer according to a trinary system (trit: 0,1,2)
         self.lexicographic_position: int = sum(3**i for i in active_states) + 2 * sum(3**i for i in finished_states)
 
     def __hash__(self):
