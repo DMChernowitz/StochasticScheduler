@@ -5,6 +5,25 @@ import numpy as np
 import matplotlib.patches as mpatches
 from matplotlib.legend_handler import HandlerPatch
 
+# the quantile of the exponential distribution that coincides with its mean
+EXPONENTIAL_AVERAGE_QUANTILE = 1 - np.exp(-1)
+
+# set to True to print more information from policy and project
+VERBOSE = False
+
+# the quantile to use when asking the max of continuous distributions with unbounded support.
+MAX_DURATION_QUANTILE = 0.999
+
+def get_title_string(title: str) -> str:
+    """Return a centered title string with a line of dashes left and right."""
+    total_len = 72
+    if title:
+        padded_title = (" " + title + ": ").center(total_len, "-")
+    else:
+        padded_title = "-" * total_len
+    return f"\n{padded_title}\n"
+
+
 def str_of_length(s: Any, length: int) -> str:
     """Return a string of length length, padding with spaces if necessary"""
     _s = str(s)[:length]
@@ -188,4 +207,103 @@ class HandlerArrow(HandlerPatch):
         self.update_prop(p, orig_handle, legend)
         p.set_transform(trans)
         return [p]
+
+
+def plot_exponential_vs_erlang(
+        lam: float = 5,
+        ks: List[int] = None
+):
+    """Plot the exponential and several Erlang distributions for a fixed lambda and various k
+
+    Meant to illustrate that the Erlang (sum of k exponentials)
+    has a mode at a nonzero value of its independent parameter.
+
+    :param lam: the lambda of the exponential distribution and the Erlang distributions
+    :param ks: the k of the Erlang distribution
+    """
+    if ks is None:
+        ks = [2,5]
+
+    import matplotlib.pyplot as plt
+
+    x = np.linspace(0, 2, 1000)
+
+    def exponential(x, lam: float) -> float:
+        return lam * np.exp(-lam * x)
+
+    plt.plot(x, exponential(x, lam), label=f"Exponential λ={lam}", linestyle="--")
+    for k in ks:
+        er = Erlang(k, lam)
+        plt.plot(x, er(x), label=f"Erlang k={k} λ={lam}", lw=k)
+
+    plt.xlabel("Time between task start and finish")
+    plt.ylabel("Probability density")
+    plt.legend()
+    plt.show()
+
+
+class DiGraph:
+    """Class to represent a directed graph. Only used to count topological orderings."""
+
+    # Constructor
+    def __init__(self, edges, N):
+        # A List of Lists to represent an adjacency list
+        self.adj_list = [[] for _ in range(N)]
+
+        # stores in-degree of a vertex
+        # initialize in-degree of each vertex with 0
+        self.indegree = [0] * N
+
+        # add edges to the undirected graph
+        for (src, dest) in edges:
+            # add an edge from source to destination
+            self.adj_list[src].append(dest)
+
+            # count in-degree
+            self.indegree[dest] += 1
+
+        # initialize and count the orderings
+        self.n_topological_orders = 0
+        self._count_topological_orders(path=[], discovered=[False] * N)
+
+    def _count_topological_orders(
+            self,
+            path: List[int],
+            discovered: List[bool]
+    ) -> None:
+        """Get the number of different ways to traverse the graph, following the directed edges"""
+
+        N = len(self.adj_list)
+        for v in range(N):
+            # proceed only if in-degree of current node is 0 and
+            # current node is not processed yet
+            if self.indegree[v] == 0 and not discovered[v]:
+
+                # for every adjacent vertex u of v,
+                # reduce in-degree of u by 1
+                for u in self.adj_list[v]:
+                    self.indegree[u] -= 1
+
+                # include current node in the path
+                # and mark it as discovered
+                path.append(v)
+                discovered[v] = True
+
+                # recur
+                self._count_topological_orders(path=path, discovered=discovered)
+
+                # backtrack: reset in-degree
+                # information for the current node
+                for u in self.adj_list[v]:
+                    self.indegree[u] += 1
+
+                # backtrack: remove current node from the path and
+                # mark it as undiscovered
+                path.pop()
+                discovered[v] = False
+
+        # count the topological order if
+        # all vertices are included in the path
+        if len(path) == N:
+            self.n_topological_orders += 1
 

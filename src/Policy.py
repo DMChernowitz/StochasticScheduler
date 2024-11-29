@@ -1,20 +1,39 @@
-from typing import List, Dict, Union, Tuple
+from typing import List, Dict, Union, Tuple, Literal
 
 from src.Project import Project
 from src.Objects import Resource, Task
 from src.StateSpace import State
 
-from src.utils import str_of_length
+from src.utils import str_of_length, get_title_string
+
+import numpy as np
 
 
 class Policy:
 
-    def __init__(self, project: Project, policy: List[int]):
+    def __init__(self,
+                 project: Project,
+                 policy: List[int] = None,
+                 policy_gen: Literal["random", "sequential"] = "random"
+                 ):
         """Initialise a policy for a given project.
 
         :param project: The project to which the policy applies.
         :param policy: The policy, a list of task ids in order of priority.
+        :param policy_gen: The method of generating the policy if it is 'None'. Either "random" or "sequential".
         """
+        if policy is None:
+            policy = list(range(len(project.task_list)))
+            if policy_gen == "random":
+                np.random.shuffle(policy)
+            elif policy_gen != "sequential":
+                raise ValueError("Policy generation method must be 'random' or 'sequential'.")
+        elif isinstance(policy, list):
+            if not set(policy) == set(range(len(project.task_list))):
+                raise ValueError("Policy must contain all task ids as integers.")
+        else:
+            raise ValueError("Policy must be a list of integers or None.")
+
         self.remaining_policy: List[int] = policy
         self.original_policy: List[int] = policy.copy()
         self.project: Project = project
@@ -144,11 +163,11 @@ class Policy:
                 middle_string = " " * n_times
 
             gantt_list.append(task_str + middle_string + suffix)
-        gantt_list.append(self.get_time_axis(n_times))
+        gantt_list.append(self._get_time_axis(n_times))
 
         return "\n".join(gantt_list)
 
-    def get_time_axis(self, n_times: int) -> str:
+    def _get_time_axis(self, n_times: int) -> str:
         timescale = max(self.task_ids_progressed_per_time.keys(), default=0)
         return "Time : 0 " + "." * (n_times - 4) + " " + str(timescale)[:5]
 
@@ -178,17 +197,20 @@ class Policy:
                         resource_graph[h_resource] += "■"
                     else:
                         resource_graph[h_resource] += " "
-            res_str += f"Requirement of {resource}:\n"
-            res_str += "\n".join(resource_graph[::-1]+[self.get_time_axis(n_times)])+"\n"
+            res_str += f"\nCorresponding Requirement of {resource}:\n"
+            res_str += "\n".join(resource_graph[::-1] + [self._get_time_axis(n_times)])
         return res_str
 
     def __repr__(self):
 
+        pre_str = get_title_string("Policy")
+        post_str = get_title_string("")
+
         if self.time_step == 0:
             return (
-                "----------------------------------------\n"
-                f"Policy (unexecuted): {self.original_policy} \n"
-                "----------------------------------------\n"
+                pre_str +
+                f"Precedence: {self.original_policy} \n" +
+                post_str
             )
 
         gant_str = self.get_gant_str()
@@ -196,12 +218,12 @@ class Policy:
         resource_str = self.get_resource_chart()
 
         return (
-            "----------------------------------------\n"
-            f"Policy with precedence {self.original_policy} \n"
-            "Gantt Chart:\n"
+            pre_str +
+            f"Precedence: {self.original_policy} \n"
+            "Execution Gantt Chart:\n"
             f"{gant_str}\n"
-            f"{resource_str}\n"
-            "----------------------------------------\n"
+            f"{resource_str}" +
+            post_str
             )
 
 

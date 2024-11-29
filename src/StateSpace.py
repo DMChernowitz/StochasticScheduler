@@ -1,14 +1,12 @@
 """Hold the possible states in the state space of the project."""
 from typing import List, Dict, Tuple, Union, TypeVar, Iterable, Set
 
-import random
-
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import patches as mpatches
 
 from src.Objects import Task, Resource, ExponentialDistribution
-from src.utils import ArrowCoordMaker, HandlerEllipse, HandlerArrow
+from src.utils import ArrowCoordMaker, HandlerEllipse, HandlerArrow, EXPONENTIAL_AVERAGE_QUANTILE, VERBOSE
 
 S = TypeVar("S", bound="State")
 MS = TypeVar("MS", bound="MetaState")
@@ -51,6 +49,7 @@ class State:
         self.total_stages = tuple(total_stages)
 
         # initialize the lexicographic position of the state, as a unique identifier inside its state space
+        # will use a mixed radix number system with the total stages (+1) as the radix
         self._lexicographic_position = None
 
         if error_check:
@@ -152,9 +151,12 @@ class State:
 
     @property
     def lexicographic_position(self) -> int:
-        """Return the unique lexicographic position of the state inside its state space.
+        """Set and return the unique lexicographic position of the state inside its state space.
 
-        Initial state is 0, and the final state is the largest one.
+        Initial state in the state-space is 0, and the final state is the largest one.
+
+        mixed radix number system:
+        # per task a digit, radix is #stages+1
         """
         if self._lexicographic_position is None:
             self._lexicographic_position = 0
@@ -212,7 +214,7 @@ class StateSpace:
         self.remaining_path_lengths: Dict[State, Union[None, Union[float, int]]] = {}
         # set the decision rule for timing:
         self.decision_quantile: Union[float, None] = None
-        self.expected_duration: Union[float, None] = None
+        self.expected_makespan: Union[float, None] = None
 
         # initialize some graph structures
         self.contingency_table: Dict[State, Union[int, None]] = {}
@@ -225,13 +227,15 @@ class StateSpace:
         """Return a tuple of all states in the state space."""
         return tuple(self.graph.keys())
 
-    def descendants_of(self, state: State) -> List[Tuple[int, State]]:
-        """Return a list of possible transitions from a state, both due to starting and finishing tasks, after
-        the graph has been constructed."""
-        return sum(self.graph[state].values(), [])
-
     def _graph_from_tasks(self) -> Dict[State, Dict[str, List[Tuple[int, State]]]]:
-        """Construct the state space graph from the tasks using recursion."""
+        """Construct the state space graph from the tasks using recursion.
+
+        The structure of the output is nested dictionary. The outer layer is a dictionary with states as keys:
+        the states as vertices of the graph. The inner values are again dictionaries.
+        The inner dictionaries have the transition types as keys, "s", "p", and "f", for starting, progressing, and finishing.
+        The inner values are lists of tuples, where the first element is the task id that changes status/stage,
+        and the second element is the state that results from the transition.
+        """
         for h, task in enumerate(self.tasks):
             if h != task.id:
                 raise ValueError("Tasks must have ids equal to their index in the list")
@@ -302,28 +306,24 @@ class StateSpace:
         # no, because all possible orderings are explored.
         return result_containers
 
-    def check_path_length(self):
-        attempts = 1000
-        path_lengths = []
-        for _ in range(attempts):
-            state = self.states[0]
-            path_length = 0
-            while state != self.final_state and path_length < 1000:
-                state = random.choice(self.descendants_of(state))[1]
-                path_length += 1
-            path_lengths.append(path_length)
-        return path_lengths
-
-    def construct_shortest_path_length(self, decision_quantile: float = 0.5) -> Dict[State, Union[int, None]]:
+    def construct_contingency_table(self, decision_quantile: float = EXPONENTIAL_AVERAGE_QUANTILE) -> Dict[State, Union[int, None]]:
         """Perform first pass of stochastic dijkstra's algorithm
          to get the shortest expected path length to each state.
 
         Uses recursion, starting from the initial state, to find the expected duration to each state.
         This is done by adding the expected transition time to the expected duration of the next state.
+
+        The expected duration is stored in self.remaining_path_lengths, and the decision rule in self.contingency_table.
+        The state_space expected_makespan is the expected duration to reach the final state from the initial state.
+
+        This method is inteded to be called by the Project class.
+        returns the contingency table, which is the decision rule for each state:
+            what to do next if we find ourselves in that state.
+
+        :param decision_quantile: The quantile of the distribution to use in the CSDP algorithm. default is 1-1/e.
         """
-        self.remaining_path_lengths: Dict[State, Union[None, Union[float, int]]] = {
-            self.final_state: 0
-        }
+        # add the trivial first value to the hash table
+        self.remaining_path_lengths[self.final_state] = 0
         # The contingency table is the decision rule for each state: what to do next if we find ourselves in that state.
         self.contingency_table: Dict[State, Union[int, None]] = {self.final_state: None}
         self.decision_quantile = decision_quantile
@@ -334,11 +334,11 @@ class StateSpace:
             raise ValueError(f"Project has non-exponential tasks: Dijkstra not currently implemented")
 
         # by querying the initial state, we will recursively calculate the expected duration to reach all states
-        self.expected_duration = self.dynamic_step(self.initial_state)
-        if self.wait_is_faster_states:
+        self.expected_makespan = self.dynamic_step(self.initial_state)
+        if self.wait_is_faster_states and VERBOSE:
             print("It was faster to wait for a task to finish than "
                   f"to start a new one from {len(self.wait_is_faster_states)} out of {len(self.states)} states.")
-        else:
+        elif VERBOSE:
             print(f"This project has {len(self.states)} states "
                   "and it is always fastest to start at least one task when possible.")
 
@@ -352,7 +352,7 @@ class StateSpace:
 
         This duration depends on the state, the transition to its descendants, and the time from each descendant.
         Along the way, all durations from descendants are calculated and stored, recursively,
-        in self.remaining_path_lengths
+        in self.remaining_path_lengths. (Memoization)
 
         This is only implemented for exponential/erlang distributions, as the state space has no memory.
 
@@ -366,6 +366,7 @@ class StateSpace:
 
         This method uses the state space graph to know what the possible transitions are from each state.
         """
+        # memoization
         if state in self.remaining_path_lengths:
             # already calculated: escape now
             return self.remaining_path_lengths[state]
@@ -379,7 +380,7 @@ class StateSpace:
             )
         best_start_option = min(start_options, key=lambda x: x[1])
 
-        finish_options, lambdas_options, composite_exponential = self.get_wait_options(state)
+        finish_options, lambdas_options, composite_exponential = self._get_wait_options(state)
 
         if lambdas_options:  # There may be active tasks to finish
             # time until any task finishes is an exponential with the summed rate
@@ -411,7 +412,10 @@ class StateSpace:
 
         return self.remaining_path_lengths[state]
 
-    def get_wait_options(self, state: State) -> Tuple[List[State],List[float], ExponentialDistribution]:
+    def _get_wait_options(
+            self,
+            state: State
+    ) -> Tuple[List[State],List[float], ExponentialDistribution]:
         """return a list of possible states and the lambdas of their transitions."""
         if state not in self.graph:
             raise ValueError(f"State {state} not in state space")
@@ -432,7 +436,7 @@ class StateSpace:
     def wait_for_finish(self, state: State) -> Dict[str, Union[float, State]]:
         """Simulate waiting for a task to finish and return the time and the state that results from it."""
 
-        next_states, lambdas, composite_exponential = self.get_wait_options(state)
+        next_states, lambdas, composite_exponential = self._get_wait_options(state)
         if not lambdas:
             raise ValueError(f"State {state} has no active tasks")
 
@@ -440,7 +444,7 @@ class StateSpace:
         new_state_n = np.random.choice(len(next_states), p=[lam / composite_exponential.lam for lam in lambdas])
         return {"time": wait_time, "state": next_states[new_state_n]}
 
-    def get_metastate_graph(self):
+    def construct_metastate_graph(self):
         """Create a graph of the metastates of the state space. Collect states with the same active tasks."""
         if self.graph == {}:
             raise ValueError("State space graph is empty. Construct it first.")
@@ -475,6 +479,7 @@ class StateSpace:
             self,
             metastate_mode: bool = True,
             rich_annotations: bool = False,
+            add_times: bool = True
     ) -> None:
         """Create a graph of the state space, with states as vertices and transitions as edges.
 
@@ -496,10 +501,14 @@ class StateSpace:
             a flag of idle, active, or finished tasks, in metastate mode. Inadviseable for large projects.
             if metastate_mode is False, the stage of each task is shown.
             if False, the number of states in the metastate is printed, or if metastate_mode is False, simply 's'.
+        :param add_times: If True, add to the arrow annotations the expected time to reach the next state,
+            and to states the expected time to reach the final state. Only has an effect if metastate_mode is False.
         """
 
+        time_decimals = 1
+
         if metastate_mode:
-            self.get_metastate_graph()  # construct the graph with vertices collections of similar states
+            self.construct_metastate_graph()  # construct the graph with vertices collections of similar states
             Atom = MetaState  # the smallest class to group on
             graph = self.metagraph
             transition_types = [t for t in self.transition_types if t != self.progress]
@@ -560,7 +569,14 @@ class StateSpace:
                 for task_id, next_state in transitions[lab_letter]:
                     arrow, (text_x,text_y) = arrow_maker.make(state_positions[state], state_positions[next_state])
                     sf_collections[lab_letter].append(arrow)
-                    transition_annotations.setdefault((text_x, text_y),[]).append(lab_letter+str(task_id))
+                    arrow_annotation = lab_letter+str(task_id)
+                    if add_times and not metastate_mode:
+                        if lab_letter == self.start:
+                            arrow_annotation += " (t+0)"
+                        else:
+                            stage_duration = self.tasks[task_id].duration_distribution.quantile(self.decision_quantile)
+                            arrow_annotation += f" (t+{str(round(stage_duration,time_decimals))})"
+                    transition_annotations.setdefault((text_x, text_y),[]).append(arrow_annotation)
                     # check if arrow is contingency table choice, and if so, give it a different color.
                     if lab_letter == self.start and optimal_contingent(state, task_id):
                         contingent_starts.append(len(sf_collections[lab_letter])-1)
@@ -586,9 +602,7 @@ class StateSpace:
                     length_includes_head=True,
                 )
 
-
-
-        def suf_maker(x: Atom):
+        def suf_maker(x: Atom):  # suffix maker for the state buttons
             if metastate_mode:
                 return str(len(self.states_per_metastate[x]))
             return self.start
@@ -603,6 +617,8 @@ class StateSpace:
                 base_string = str(x)[1:-1]
                 if metastate_mode and variable_state_counts:
                     return " "+base_string + f" \n({(suf_maker(x))})"
+                elif add_times and not metastate_mode:
+                    return base_string + f" \nt={str(round(self.remaining_path_lengths[x],time_decimals))}"
                 return base_string
 
             bbox = dict(boxstyle="round", fc="0.8")
@@ -694,6 +710,7 @@ class MetaState:
         self.finished_states = tuple(sorted(finished_states))
         self.n_tasks = len(self.waiting_states) + len(self.active_states) + len(self.finished_states)
 
+        # mapping from the state to a unique integer according to a trinary system (trit: 0,1,2)
         self.lexicographic_position: int = sum(3**i for i in active_states) + 2 * sum(3**i for i in finished_states)
 
     def __hash__(self):
