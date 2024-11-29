@@ -1,13 +1,13 @@
-Exponential Dijkstra Scheduler
+Stochastic Resource Constrained Project Scheduling: a dynamic programming approach
 
-A small POC project to explore Stochastic Resource Constrained Project Scheduling.
+A small POC project to explore SRCPSPs, and the state space framework for optimizing them.
 
 It has four main components
 - A Project that consists of a set of tasks, with probabilistic durations, and renewable resources available.
     - Tasks can be dependent on other tasks
     - Tasks can be parallelized
     - Tasks have resource requirements
-    - Tasks can have exponential distributions or discrete distributions
+    - Tasks durations can have exponential distributions or discrete distributions
     - A project can be created from a config file
 - A Policy, which is a prioritization strategy for tasks. The Policy takes a project and can simulate execution.
     - Tasks are executed in the order they appear in the policy, as long as their dependencies are met and resources are available.
@@ -15,8 +15,8 @@ It has four main components
 - A StateSpace class, a data structure that holds possible states of the project, and has a stochastic dynamic programming algorithm to find the optimal policy.
     - The state space is a directed graph, where each node is a state of the project, and each edge is a possible transition between states.
     - Moving through the state space can happen deterministically or stochastically. The former when starting a task. The latter whenever we finish a task.
-- A DynamicPolicy class which uses the SDP to find an optimal, dynamic policy.
-    - At any point in the project, we start tasks or wait. These decisions follow the shortest stochastic path to completion.
+- A DynamicPolicy class which uses a dynamic-programming generating contingency table to execute an optimal, dynamic policy.
+    - At any point in the project, we start tasks or wait. These decisions follow the shortest expected path to completion.
 
 Also included are
 - An Experiment class that runs a simulation of a project with a given policy, and returns the duration of the project.
