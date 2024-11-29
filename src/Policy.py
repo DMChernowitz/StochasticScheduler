@@ -4,7 +4,7 @@ from src.Project import Project
 from src.Objects import Resource, Task
 from src.StateSpace import State
 
-from src.utils import str_of_length
+from src.utils import str_of_length, get_title_string
 
 import numpy as np
 
@@ -197,17 +197,20 @@ class Policy:
                         resource_graph[h_resource] += "■"
                     else:
                         resource_graph[h_resource] += " "
-            res_str += f"Requirement of {resource}:\n"
-            res_str += "\n".join(resource_graph[::-1] + [self._get_time_axis(n_times)]) + "\n"
+            res_str += f"\nCorresponding Requirement of {resource}:\n"
+            res_str += "\n".join(resource_graph[::-1] + [self._get_time_axis(n_times)])
         return res_str
 
     def __repr__(self):
 
+        pre_str = get_title_string("Policy")
+        post_str = get_title_string("")
+
         if self.time_step == 0:
             return (
-                "----------------------------------------\n"
-                f"Policy (unexecuted): {self.original_policy} \n"
-                "----------------------------------------\n"
+                pre_str +
+                f"Precedence: {self.original_policy} \n" +
+                post_str
             )
 
         gant_str = self.get_gant_str()
@@ -215,12 +218,12 @@ class Policy:
         resource_str = self.get_resource_chart()
 
         return (
-            "----------------------------------------\n"
-            f"Policy with precedence {self.original_policy} \n"
-            "Gantt Chart:\n"
+            pre_str +
+            f"Precedence: {self.original_policy} \n"
+            "Execution Gantt Chart:\n"
             f"{gant_str}\n"
-            f"{resource_str}\n"
-            "----------------------------------------\n"
+            f"{resource_str}" +
+            post_str
             )
 
 

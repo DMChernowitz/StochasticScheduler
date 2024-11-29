@@ -4,9 +4,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from src.config import Config
-
-from src.utils import binom, moments_to_erlang
+from src.utils import binom, MAX_DURATION_QUANTILE
 
 T = TypeVar("T", bound="Task")
 
@@ -24,6 +22,8 @@ class Resource(Enum):
 
 class ProbabilityDistribution(ABC):
     """Abstract Base class indicating what methods a probability distribution should have."""
+
+    name: str
 
     def realization(self) -> Union[float,int]:
         """Sample from the (1d) distribution and return a single stochast."""
@@ -73,7 +73,7 @@ class ExponentialDistribution(ProbabilityDistribution):
 
     @property
     def max(self) -> float:
-        return self.quantile(Config.max_duration_quantile)
+        return self.quantile(MAX_DURATION_QUANTILE)
 
 
 class IntProbabilityDistribution(ProbabilityDistribution):
@@ -264,9 +264,9 @@ class Task:
             max_dependencies: int = 5,
             resource_types: Union[int, List[Resource]] = 2,
             max_simultaneous_resources_required: int = 10,
-            duration_average_range: Tuple[int, int] = (2, 10),
-            duration_variance_range: Tuple[int, int] = (1, 4),
-            prob_type: Literal["uniform", "binomial", "random", "exponential", "erlang"] = "exponential",
+            minimum_duration_range: Tuple[int, int] = (1, 4),
+            duration_spread_range: Tuple[int, int] = (1, 4),
+            prob_type: Literal["uniform", "binomial", "random", "exponential"] = "exponential",
             max_stages: int = 5
     ) -> T:
         """
@@ -278,8 +278,9 @@ class Task:
         :param max_dependencies: maximum number of dependencies randomly chosen
         :param resource_types: number of resource types or list of resource types
         :param max_simultaneous_resources_required: maximum number of resources required
-        :param duration_average_range: range of average duration
-        :param duration_variance_range: range of variance of duration
+        :param minimum_duration_range: range of minimum duration
+        :param duration_spread_range: range of difference between maximum and minimum duration
+            or if prob_type is exponential, the range from which to sample the average duration
         :param prob_type: type of probability distribution for duration
         :param max_stages: maximum number of stages for any task
         :return: task object
@@ -287,10 +288,16 @@ class Task:
         if isinstance(resource_types, int):
             resource_types: List[Resource] = list(np.random.choice(Resource, resource_types, replace=False))
 
-        avg_days = np.random.randint(*duration_average_range)
-        var_days = np.random.randint(*duration_variance_range)
-        min_days = max(1, avg_days - var_days)
-        max_days = avg_days + var_days
+        #error checks:
+        if minimum_duration_range[1] < minimum_duration_range[0]:
+            raise ValueError("Minimum duration range must be non-decreasing")
+        if duration_spread_range[1] < duration_spread_range[0]:
+            raise ValueError("Duration spread range must be non-decreasing")
+        if minimum_duration_range[0] < 1:
+            raise ValueError("Minimum duration must be at least 1")
+
+        min_days = np.random.randint(minimum_duration_range[0], minimum_duration_range[1] + 1)
+        max_days = min_days + np.random.randint(duration_spread_range[0], duration_spread_range[1] + 1)
         days = list(range(min_days, max_days + 1))
         stages = np.random.randint(1, max_stages + 1)
 
@@ -317,22 +324,9 @@ class Task:
                     days, probabilities / sum(probabilities)
                 )
             case "exponential":
+                avg_duration = np.random.uniform(*duration_spread_range)
                 duration_distribution: ExponentialDistribution = ExponentialDistribution(
-                    1 / np.random.uniform(max_days - min_days + 1))
-            case "erlang":
-                # use a separate logic for Erlang distribution
-                mu, var, attempts = 10,1,0
-                while mu ** 2 / var > 5.4:  # will become the number of stages.
-                    mu = np.random.uniform(*duration_average_range)
-                    var = np.random.uniform(*duration_variance_range)
-                    attempts += 1
-                    if attempts > 1000:
-                        raise ValueError(
-                            "Distribution of average and variance producing Erlang tasks with too many stages."
-                        )
-                stages, lam = moments_to_erlang(mu=mu, var=var)
-                stages = min(cls.MAX_STAGES, max_stages)
-                duration_distribution: ExponentialDistribution = ExponentialDistribution(lam=lam)
+                    1 / avg_duration)
             case other:
                 raise ValueError(f"Probability type {other} not recognized")
 

@@ -1,14 +1,12 @@
 """Hold the possible states in the state space of the project."""
 from typing import List, Dict, Tuple, Union, TypeVar, Iterable, Set
 
-import random
-
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import patches as mpatches
 
 from src.Objects import Task, Resource, ExponentialDistribution
-from src.utils import ArrowCoordMaker, HandlerEllipse, HandlerArrow, EXPONENTIAL_AVERAGE_QUANTILE
+from src.utils import ArrowCoordMaker, HandlerEllipse, HandlerArrow, EXPONENTIAL_AVERAGE_QUANTILE, VERBOSE
 
 S = TypeVar("S", bound="State")
 MS = TypeVar("MS", bound="MetaState")
@@ -337,10 +335,10 @@ class StateSpace:
 
         # by querying the initial state, we will recursively calculate the expected duration to reach all states
         self.expected_makespan = self.dynamic_step(self.initial_state)
-        if self.wait_is_faster_states:
+        if self.wait_is_faster_states and VERBOSE:
             print("It was faster to wait for a task to finish than "
                   f"to start a new one from {len(self.wait_is_faster_states)} out of {len(self.states)} states.")
-        else:
+        elif VERBOSE:
             print(f"This project has {len(self.states)} states "
                   "and it is always fastest to start at least one task when possible.")
 

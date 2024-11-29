@@ -1,8 +1,8 @@
 from typing import Dict, List, TypeVar, Set
 
 from src.Objects import Task, Resource
-from src.config import Config, RandomConfig, LiteralConfig
-from src.utils import format_table, DiGraph, EXPONENTIAL_AVERAGE_QUANTILE
+from config import Config, RandomConfig, LiteralConfig
+from src.utils import format_table, DiGraph, EXPONENTIAL_AVERAGE_QUANTILE, VERBOSE, get_title_string
 from src.StateSpace import StateSpace, State
 
 T = TypeVar("T", bound="Project")
@@ -39,12 +39,13 @@ class Project:
 
         self.average_duration: float = sum([task.average_duration for task in task_list])
         self.state_space: StateSpace = StateSpace(task_list, resource_capacities)
-        print(f"Creating project with {len(task_list)} tasks, "
-              f"running stochastic Dijkstra's on it to find optimal contigent policy. ")
+
         self.contingency_table = self.state_space.construct_contingency_table(decision_quantile=decision_quantile)
 
-        print(f"Expected duration of fastest path: {round(self.state_space.expected_makespan, 4)}")
-        print("(multiply by -log(1-p) for quantile p duration of each task, instead of expected.)")
+        if VERBOSE:
+            print(f"Creating project with {len(task_list)} tasks, "
+              f"running CSDP on it to find optimal contingent policy. ")
+            print(f"Expected duration of fastest path: {round(self.state_space.expected_makespan, 4)}")
 
     def print_contingency_table(self) -> None:
         """Print the contingency table of the project."""
@@ -52,11 +53,13 @@ class Project:
         for state, task_id in self.contingency_table.items():
             if task_id is not None:
                 start_task_list[task_id].append(state)
-        print("------------------Contingency table:------------------")
+
+        full_str = get_title_string("Contingency table")
+
         for h,task_starters in enumerate(start_task_list):
-            print(f"Start task {h} at states {sorted(task_starters)}")
-        print("At all other states, no task can / should be started.")
-        print("------------------------------------------------------")
+            full_str += f"Start task {h} at states {sorted(task_starters)}\n"
+        full_str += "At all other states, no task can / should be started."
+        print(full_str + get_title_string(""))
 
     def visualize_state_space(
             self,
@@ -112,7 +115,7 @@ class Project:
 
     def __repr__(self):
         if len(self.task_list) < 10:
-            add_str: str = f"\n# topological orderings due to dependencies: {self.n_topological_orderings}. \n"
+            add_str: str = f"\n# topological orderings due to dependencies: {self.n_topological_orderings}."
         else:
             add_str: str = ""
 
@@ -136,18 +139,26 @@ class Project:
         average_dur_str = str(round(self.average_duration,4))
 
         return (
-            "-------------------------------------------- \n"
-                f"Project with tasks: \n{task_dict_repr} \n"
-                f"Resource capacities: ({resource_cap_str}), \n"
-                f"Sequential duration expectation {average_dur_str}, "
+            get_title_string("Project") +
+                f"With tasks: \n{task_dict_repr} \n"
+                f"Resource capacities:             ({resource_cap_str}), \n"
+                f"Sequential duration expectation: {average_dur_str}, \n"
+                f"Optimal makespan expectation:    {round(self.state_space.expected_makespan, 4)}, \n"
                 f"and state space of {len(self.state_space.states)} states."
-                f"{add_str}"
-            "-------------------------------------------- \n"
+                f"{add_str}" +
+            get_title_string("")
         )
 
     @classmethod
     def from_config(cls, config: Config) -> T:
         """Create a project from a configuration object"""
+
+        if isinstance(config.resource_capacities, int):
+            resource_capacities = {Resource(n): config.resource_capacities for n in range(1, 1 + len(Resource))}
+        elif isinstance(config.resource_capacities, dict):
+            resource_capacities = {Resource[n]: v for n, v in config.resource_capacities.items()}
+        else:
+            raise ValueError("config.resource_capacities must be an int or a dict of resource names to capacities")
 
         if isinstance(config, RandomConfig):
 
@@ -155,19 +166,18 @@ class Project:
                 Task.generate_random(
                     task_id=n,
                     max_simultaneous_resources_required=config.max_simultaneous_resources_required,
-                    duration_average_range=config.duration_average_range,
-                    duration_variance_range=config.duration_variance_range,
+                    minimum_duration_range=config.minimum_duration_range,
+                    duration_spread_range=config.duration_spread_range,
                     max_dependencies=config.max_dependencies,
                     prob_type=config.prob_type,
                     max_stages=config.max_stages
                 ) for n in range(config.n_tasks)
             ]
-            resource_capacities = {Resource(n): config.resource_available for n in range(1, 1 + len(Resource))}
+
         elif isinstance(config, LiteralConfig):
             tasks: List[Task] = [
                 Task.from_dict(task_dict) for task_dict in config.tasks
             ]
-            resource_capacities = {Resource[n]: v for n, v in config.resource_capacities.items()}
         else:
             raise ValueError("config must be of type RandomConfig or LiteralConfig")
         return cls(tasks, resource_capacities)

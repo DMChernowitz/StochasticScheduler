@@ -5,12 +5,30 @@ import numpy as np
 import matplotlib.patches as mpatches
 from matplotlib.legend_handler import HandlerPatch
 
+# the quantile of the exponential distribution that coincides with its mean
 EXPONENTIAL_AVERAGE_QUANTILE = 1 - np.exp(-1)
+
+# set to True to print more information from policy and project
+VERBOSE = False
+
+# the quantile to use when asking the max of continuous distributions with unbounded support.
+MAX_DURATION_QUANTILE = 0.999
+
+def get_title_string(title: str) -> str:
+    """Return a centered title string with a line of dashes left and right."""
+    total_len = 72
+    if title:
+        padded_title = (" " + title + ": ").center(total_len, "-")
+    else:
+        padded_title = "-" * total_len
+    return f"\n{padded_title}\n"
+
 
 def str_of_length(s: Any, length: int) -> str:
     """Return a string of length length, padding with spaces if necessary"""
     _s = str(s)[:length]
     return _s + " " * (length - len(_s))
+
 
 def format_table(table: List[List[str]]) -> str:
     """Put together a table where the first row is the titles."""
@@ -213,10 +231,10 @@ def plot_exponential_vs_erlang(
     def exponential(x, lam: float) -> float:
         return lam * np.exp(-lam * x)
 
-    plt.plot(x, exponential(x, lam), label=f"Exponential λ={l}", linestyle="--")
+    plt.plot(x, exponential(x, lam), label=f"Exponential λ={lam}", linestyle="--")
     for k in ks:
         er = Erlang(k, lam)
-        plt.plot(x, er(x), label=f"Erlang k={k} λ={l}", lw=k)
+        plt.plot(x, er(x), label=f"Erlang k={k} λ={lam}", lw=k)
 
     plt.xlabel("Time between task start and finish")
     plt.ylabel("Probability density")

@@ -181,8 +181,17 @@ This example produces the Contingency table:
  | 00    | 5.1 | s0                 |
 
 
-N.B. in the code, whenever a distribution is queried for its expectation, instead we take a quantile, this quantile is set globally for all tasks. Formally, this is, of course, nonsense, because there is no linearity of quantiles property in statistics. But it allows for more freedom to run a heuristic algorithm of the same shape in 'optimistic' or 'worst-case-scenario' planning mode, by setting it to a high or low quantile.
-Moreover, for exponential distributions, there is a specific quantile that coincides with the expectation: 1-1/e. It is independent of the rate parameter λ. This is the default value, and by choosing it, we recover exactly the math from above.
+N.B. in the code, whenever a distribution is queried for its expectation, instead we take a quantile, this quantile is set globally for all tasks. 
+
+In general, this would nonsense, because there is no linearity of quantiles property in statistics. It simply offers a heuristic algorithm that allows for more 'optimistic' or 'worst-case-schenario' planning.
+
+But specifically for exponential distributions, the following formula holds:
+
+    Quantile(p) = -1/λ * ln(1-p) = - E * ln(1-p)
+
+Meaning the global choice of quantile _is_ linear in the expectation, multiplying the durations by a global factor. It therefore does not change any of the optimal moves in the contingency table, or our strategy. Changing the quantile only scales the expected time-to-finish.
+
+Evidently, there is a specific quantile that coincides with the expectation: 1-1/e. It is independent of the rate parameter λ. This is the default value, and by choosing it, we recover exactly the math from above.
 
 Now that the theory is explained: how should one use these tools? On to the [next section](#getting-started).
 
@@ -200,7 +209,7 @@ The basic flow of this repo is:
 
 ## Modules in this Repo
 
-The main modules in `src` are:
+The main modules in `src` directory are:
 
 - `Project.py`: [Project docs](#projectpy)
 - `Policy.py`: [Policy docs](#policypy)
@@ -215,7 +224,9 @@ which all borrow from the `Objects.py` classes:
 - `Resource`
 - `ProbabilityDistribution`.
 
-Let's start with the objects.
+The example script `main.py`, and the configuration file `config.py` are in the root directory.
+
+Let's start with `src/Objects.py`.
 
 ## Objects.py
 
@@ -278,17 +289,21 @@ There are two class methods, as alternative ways to instantiate a Task object, i
 
 - `.generate_random()`:
   - Usage:
-    - Generate a task with random resource requirements and duration.
+    - Generate a task with 
+      - random resource requirements
+      - random dependencies, 
+      - and random parameters of the probabilistic duration distribution.
+    - In order to quickly generate a project with many tasks, interrelations, even when you are not feeling very inspired, or to recon for interesting effects.
   - Arguments:
-    - `task_id`: integer denoting the task ids
-    - `dependencies`: list of task ids that this task depends on (must be done before)
-    - `max_dependencies`: maximum number of dependencies randomly chosen
-    - `resource_types`: number of resource types or list of resource types
-    - `max_simultaneous_resources_required`: maximum number of resources required
-    - `duration_average_range`: range of average duration
-    - `duration_variance_range`: range of variance of duration
-    - `prob_type`: type of probability distribution for duration, can be "uniform", "binomial", "random", "exponential", "erlang". For the latter 2, uses an `ExponentialDistribution` object. For the former three, uses an `IntProbabilityDistribution` object with various probability protocols.
-    - `max_stages`: maximum number of stages for any task
+    - `task_id`: integer denoting the task id of this task.
+    - `dependencies`: list of task ids that this task depends on (must be done before). If `None`, dependencies are chosen randomly from lower task ids than the current task.
+    - `max_dependencies`: maximum number of dependencies to choose randomly. The actual number of dependencies of this task will be chosen randomly, up to this amount.
+    - `resource_types`: number of resource types or list of `Resource` types. If number, will randomly choose from the three types. If list, allocate a requirement for each resource type on the list
+    - `max_simultaneous_resources_required`: maximum number of resources required per resource type.
+    - `minimum_duration_range`: tuple of 2 ints. Especially for discrete distributions, the range of possible minimum durations, sampled uniformly.
+    - `duration_spread_range`: tuple of 2 ints. The range of the difference between the minimum and maximum duration, sampled uniformly.
+    - `prob_type`: type of probability distribution for duration, can be "uniform", "binomial", "random", "exponential". For the former three, uses an `IntProbabilityDistribution` object with various probability protocols. For the latter, uses an `ExponentialDistribution` object, with average duration chosen uniformly from `duration_spread_range`, and `minimum_duration_range` is unused.
+    - `max_stages`: maximum number of stages for any task. Sampled uniformly between 1 and this number.
   - Returns:
     - A Task object.
 - `.from_dict()`:
@@ -436,7 +451,20 @@ The class has the class method `from_config()` that allows for easy instantiatio
 
 - `.from_config()`:
   - Usage:
-    - Create a project from a configuration object. If the configuration is a `RandomConfig`, the tasks will be generated randomly. If it is a `LiteralConfig`, the tasks will be created to the specifications in the configuration.
+    - Create a project from a configuration object. Any config must have:
+      - `resource_capacities`: dictionary (keys: name of the resource, values: int), the number of resources available for each type. Can also be an int, then all resources have the same capacity.
+    - If the configuration is a `RandomConfig`, the tasks will be generated randomly. Then it must have the following fields:
+      - `n_tasks`: integer, the number of tasks to generate.
+      - `max_dependencies`: integer, the maximum number of dependencies per task. Dependencies are chosen randomly from lower task_ids, up to this number.
+      - `max_simultaneous_resources_required`: integer, the maximum number of resources required per task per resource type.
+      - `minimum_duration_range`: tuple of 2 ints, the interval from which to choose the minimum duration of each task uniformly.
+      - `duration_spread_range`: tuple of 2 ints, the interval from which to choose the difference between the minimum and maximum duration of each task uniformly.
+      - `prob_type`: string, can be "exponential", "binomial", "uniform", or "random". The type of probability distribution for duration.
+      - `max_stages`: integer, the maximum number of stages for any task. Choose uniformly from 1 to this number, per task.
+    - See also the [docs](#task) on the `Task.generate_random()` method.
+    - If it is a `LiteralConfig`, the tasks will be created to the specifications in the configuration. Then the config must have the following fields:
+      - tasks: a list of dictionaries, each with the following keys: `id`, `dependencies`, `distribution`, `stages`, `avg_stage_duration`, `resource_requirements`.
+      - the `resource_requirements` dictionary must have the resource names as keys, and the required amount as values.
   - Arguments:
     - `config`: a `Config` object, either a `RandomConfig` or a `LiteralConfig`. For the syntax, there are examples in the `config.py` file, and the `Task` class.
   - Returns:
@@ -461,7 +489,7 @@ The `Policy` class implements the classic static functionality of a project sche
   - Arguments:
     - `project`: The `Project` instance to which the policy applies.
     - `policy`: The policy, a list of task ids in order of priority. Default is None, then it will be generated according to instructions.
-    - `policy_gen`: The method of generating the policy if it is None. Either "random" or "sequential". Default is "random".
+    - `policy_gen`: The method of generating the policy if it is None. Either "random": uniformly choose a permutation, or "sequential": in order of task id. Default is "random".
   - Returns:
     - The initialized Policy object.
 - `.execute()`:  
@@ -736,7 +764,11 @@ For the technically inclined reader, I'll go over some internal methods of the `
 
 ### MetaState
 
-The metastate is an auxiliary class used for visual bookkeeping. Perhaps it is also helpful abstraction to reduce the apparent complexity of a project, if one thinks of the division of a task into stages as merely an artifact used to obtain the correct distribution, not a measure of progress that could be observed realistically.
+The metastate is an auxiliary class used for visual bookkeeping. Formally, a metastate is a set of states that have the same active tasks. I.e. when a task progresses to another stage, but does not finish, the obtained state is still in the same metastate as the old state.
+
+Its main function is to reduce the number of nodes visible in the state space graph. See the [docs above](#statespace) for more information on the metastate mode.
+
+Perhaps it is also helpful abstraction to reduce the apparent complexity of a project, if one thinks of the division of a task into stages as merely an artifact used to obtain the correct probability distribution, not a measure of progress that could be observed realistically.
 The `MetaState` class has the following methods:
 
 - `.__init__()`:  
@@ -772,7 +804,45 @@ Finally, the class has the following properties:
 
 ## Experiment.py
 
+This module stands apart from the others, as it is slightly ad-hoc. It is intended more as an example of how the more fundamental classes can be used for statistical analysis, than as a source of immutable building blocks. 
+
 ### Experiment
+
+The `Experiment` class is used to compare the performance of the CSDP to different static policies on a project. It can only be instantiated through a `Config` object, and has the following methods:
+
+- `.__init__()`:  
+  - Usage:
+    - Initialize an Experiment object.
+    - As a component, will initialize an internal `Project` object.
+  - Arguments:
+    - `experiment_config`: a `Config` object, the configuration of the experiment. Must have the following fields:
+      - `n_permutations`: an integer, the number of different policies to compare to the CSDP.
+      - `n_runs`: an integer, the number of times to run each policy.
+      - All [requirements](#project) of the `Project.from_config()` method.
+  - Returns:
+    - The initialized Experiment object.
+- `.run()`:
+    - Usage:
+      - Create `n_permutations` static policies, each with a random permutation of the tasks as precedence order.
+      - Execute each random `Policy` for `n_runs` times, storing the makespans in `self.results_dict`.
+      - Also execute the CSDP `DynamicPolicy` for `n_runs` times, storing the makespans in `self.results_dict`.
+      - Policies are either labeled in terms of the precedence order of tasks, or as "CSDP".
+      - The execution is probabilistic, by sampling the task distributions, so the results will vary between runs.
+    - Arguments:
+        - None.
+    - Returns:
+        - None.
+- `.analyze()`:
+    - Usage:
+      - Print the results of the experiment and show a histogram of the makespans.
+      - This histogram also shows the average makespan of each policy.
+      - Prints the details of the project, using the `Project.__repr__()`, see its [docs](#project).
+      - Prints a report on the significance of the hypothesis that the CSDP is faster than each static policy.
+      - a p-value is obtained with the (strong) approximation that the makespans are normally distributed.
+    - Arguments:
+        - None.
+    - Returns:
+        - None.
 
 ## Sources
 ```
