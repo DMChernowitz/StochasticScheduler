@@ -6,6 +6,9 @@ class Config:
     n_runs = 800 # for simulation per policy
     n_permutations = 5  # for policies (lists of priorities)
 
+    # for significance testing
+    p_value_threshold = 0.05
+
     resource_capacities: dict = {
         "centrifuge": 9,
         "crane": 16,
@@ -38,7 +41,7 @@ class LiteralConfig(Config):
         dict(
             id=0,
             dependencies=[],
-            distribution="erlang",
+            distribution="exponential",
             stages=2,
             avg_stage_duration=4,
             resource_requirements={"drill": 5, "centrifuge": 5}
@@ -46,7 +49,7 @@ class LiteralConfig(Config):
         dict(
             id=1,
             dependencies=[],
-            distribution="erlang",
+            distribution="exponential",
             stages=3,
             avg_stage_duration=7,
             resource_requirements={"drill": 2, "crane": 9}
@@ -54,7 +57,7 @@ class LiteralConfig(Config):
         dict(
             id=2,
             dependencies=[0],
-            distribution="erlang",
+            distribution="exponential",
             stages=2,
             avg_stage_duration=3,
             resource_requirements={"crane": 10}
@@ -62,7 +65,7 @@ class LiteralConfig(Config):
         dict(
             id=3,
             dependencies=[2],
-            distribution="erlang",
+            distribution="exponential",
             stages=1,
             avg_stage_duration=11,
             resource_requirements={"centrifuge": 6}

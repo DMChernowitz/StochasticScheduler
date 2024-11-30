@@ -828,6 +828,7 @@ The `Experiment` class is used to compare the performance of the CSDP to differe
     - `experiment_config`: a `Config` object, the configuration of the experiment. Must have the following fields:
       - `n_permutations`: an integer, the number of different policies to compare to the CSDP.
       - `n_runs`: an integer, the number of times to run each policy.
+      - `p_value_threshold`: a float between [0,0.5], the threshold for the p-value to consider the CSDP significantly faster than a static policy.
       - All [requirements](#project) of the `Project.from_config()` method.
   - Returns:
     - The initialized Experiment object.

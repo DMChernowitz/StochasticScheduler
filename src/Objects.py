@@ -427,9 +427,6 @@ class Task:
         else:
             raise ValueError(f"Memoryfull distributions currently not supported. Got {task_dict['distribution']}.")
 
-        if task_dict["distribution"].lower() == "exponential" and task_dict["stages"] > 1:
-            raise ValueError("Exponential distribution cannot have more than one stage. use 'erlang' instead.")
-
         resource_requirements = {
             Resource[resource]: amount for resource, amount in task_dict["resource_requirements"].items()
         }
