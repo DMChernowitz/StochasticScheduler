@@ -2,6 +2,8 @@
 
 This is a project used to explore, solve, and visualize SRCPSPs, or Stochastic Resource-Constrained Project Scheduling Problems.
 
+The main contribution is a Dynamic Programming (DP) implementation of the Markov Decision Process (MDP) of navigating from state to state in the project. 
+
 ### Definition
 
 An SRCPSP is a project scheduling problem. It asks: _when to start tasks such that all are completed in the shortest time possible?_ The time between start of the first task and the completion of the last task is called the _makespan_. Some characteristics:
@@ -33,7 +35,7 @@ increasing the makespan. We could start with task 2, but this would be even slow
 
 ## Statespace Graph Framework and Memoryless tasks
 
-I borrow heavily from the literature as produced by Cremers (1), who continued the work of Kulkarni and Adlakha (2). The seminal idea is to formulate the state space of the project as a graph, with allowed transitions between states when a particular task starts or finishes. Whether a transition is allowed, is determined by satisfying both the resource constraints and the dependency constraints.
+I borrow heavily from the literature as produced by Cremers (1), who continued the work of Kulkarni and Adlakha (2). The seminal idea is to formulate the state space of the project as a graph, with allowed transitions between states when a particular task starts or finishes. Whether a transition is allowed, is determined by satisfying both the resource constraints and the dependency constraints. 
 
 Let us return to the example project with 3 tasks. Assume we have have 1 unit of one type of 'resource' available, and the following table holds:
 
@@ -50,7 +52,10 @@ The idea is to work in terms of the graph below, [made with this repo](#project)
 This framework is particularly powerful when using exponentially distributed random variables, thanks to the memoryless property. This is what we get when we model the rate of probability for a task to finish as constant in time.
 For exponentials, and only exponentials, we do not need to keep track of how long a task has been running, which started first, etc. Each state is completely characterized by the set of tasks that are currently Active, Finished, or not yet started (Idle).
 
-In the graph, the state of each task is represented by a letter, and the project states are represented by triplets of letters. Transitions are arrows indicating which task starts or finishes. The term _metastate_, in short, means the tasks may have various stages of completion collected into one node. More in the [next subsection](#erlang-distributed-tasks). 
+This is an example of a Markov Decision Process (MDP):
+sometimes we alter the state with a decision, and sometimes the state is altered stochastically. We cannot predict with certainty which of the active tasks will be completed first.
+
+In the graph, the status of each task is represented by a letter, and the project states are represented by triplets of letters. Transitions are arrows indicating which task starts or finishes. The term _metastate_, in short, means the tasks may have various stages of completion collected into one node. More in the [next subsection](#erlang-distributed-tasks). 
 
 ### Erlang Distributed Tasks
 
@@ -65,7 +70,7 @@ The Erlang is a special case of the hypoexponential distribution, with all λs e
 
 ## Execution Policies
 
-Despite the resource requirements, and dependency requirements per task, there is still superexponential freedom in choosing the scheduling order. The most concise (but less powerful) way to encode our order preference, is with a _policy_.
+Despite the resource requirements, and dependency requirements per task, there is still often great freedom in choosing the scheduling order. Indeed, without constraints, the freedom is superexponential in the number of tasks. The most concise (but less powerful) way to encode our order preference, is with a _policy_.
 
 A policy is simply a permutation of the task indices. I.e. for tasks (0,1,2), a policy could be [2,0,1]. Executing it means always starting the first idle task in the list that is allowed by the constraints. If no task is allowed, we wait until an active one finishes, then return to the policy. It is clear that there are n! policies for n tasks, though in execution they might not all be unique, due to constraints. 
 
@@ -73,7 +78,8 @@ They are also 'blind', not taking into account the history of the project. This 
 
 ### Contingent Stochastic Dynamic Programming
 
-I have developed and coded a type of contingent Dijkstra's algorithm for the shortest traversal of the state-space graph from Project start to project finish. Let us call this technique Contingent Stochastic Dynamic Programming, or CSDP.
+I have implemented a type of contingent Dijkstra's algorithm for the shortest traversal of the state-space graph from project start to project finish. It's an MDP with the makespan as the reward. Let us call this technique Contingent Stochastic Dynamic Programming, or CSDP.
+
 Executing a project in CSDP, we keep a lookup table of which tasks to start (or whether to wait), given that we find ourselves in any project state, such that the expected remaining duration is minimized. The reasoning hinges on linearity of expectations. Even if we are pushed off the expected course, because a task that should have taken long, takes only a short time, or vise versa, we can still use the lookup table to find the optimal next task to start, _contingent_ on inadvertently being in this state.
 
 In the graph first, this is represented by the red arrows. If a state has a red arrow leaving from it, then it is time-efficient to start that task as soon as we arrive at this state. We cannot predict which of the blue arrows will be traversed a priori (i.e. from FAA, we might end up in FFA or FAF), but we can always take a red one when presented.
@@ -119,20 +125,22 @@ The topology of the state-space is graphed below.
 In this graph:
 - The round buttons are states. Their label describes the progress of the two tasks, separated by a pipe (|). 
 - The first state can be Idle (0/2), Active (1/2 or 2/2), or Finished (f). The second state can be Idle (0/1), Active (1/1), or Finished (f). 
-- Beneath the states is printed the expected time-to-finish, _contingent on taking the optimal path_. 
+- Beneath the states is printed the expected time-to-finish, _contingent on taking the optimal direction whenever possible_. (Bellman's priciple of optimality)
 - E.g. the expected duration of the entire project is t=5.1 units of time, as seen in the initial state in cyan. 
 - The arrows between states indicate whether a task is starting (s), progressing (p), or finishing (f), and carry the expected time for that transition to take place _in isolation_.
 - Starting a task is immediate.
 
 An important note: When multiple tasks are running, due to the memoryless property, the expected time until the first one of them progresses a stage / finishes (and therefore, the state transitions) is lower than the minimum of expected times for each individual task. The exact formula follows below. 
 
-For each state, we wish to calculate the expected time-to-finish (t) from that state. The contingency table will always point a state to the connecting next state with the lowest expected time-to-finish. 
+For each state S, we wish to calculate the expected time-to-finish t(S) from that state, given that all subsequent decisions are optimal. The contingency table will always point a state to the connecting next state with the lowest expected time-to-finish. 
 In the code, the expected time-to-finish is calculated recursively. We call a function `StateSpace.dynamic_step(initial_state)`, which returns t. It, in turn, will query `dynamic_step` on all the states the initial state can evolve into, etc. Thus the algorithm spreads out to all the reachable state space. Once a definite expected-time-to-finish is returned for a state, because all its constituents are known, it is stored using memoization, to avoid duplicate calculations.
 However, the easiest way to explain the logic, is the opposite of the way it is coded. We will work our way _up_ the call stack, after the deepest level of recursion has been invoked. 
 
 Namely, for the final state, the expected time-to-finish is trivially 0. See the yellow button in the graph above.
 
 Then, from states that directly evolve into that state (in this case, only through task-finishing transitions), it is also clear that the expected remaining duration is the expected stage duration for the active task. Therefore, the two gray buttons connecting to end state have expected time-to-finish t=2 and t=3, respectively.
+
+### Bellman Equation for the Expected Time-to-Finish
 
 Now it gets more interesting. What happens when a state can evolve in multiple directions? In this case, we distinguish two competing transition types: 
 1. starting a task: the fastest start option
@@ -143,7 +151,9 @@ From state S, let there be idle tasks (a_1, a_2, ... a_m) that could be started 
 
     t(S) = min{ t(S| start a_1), t(S| start a_2), ... t(S| start a_m), t(S| wait) }
 
-What is the expected time-to-finish, after starting a task a_1? Because starting a task is immediate, it is simply the expected time-to-finish of the states obtained by starting a_1. The recursion will call that value, and eventually return it.
+This is a version of the Bellman equation. It is recursive, as we will see below.
+
+Some practical questions: what is the expected time-to-finish, after starting a task a_1? Because starting a task is immediate, it is simply the expected time-to-finish of the states obtained by starting a_1. The recursion will call that value, and eventually return it.
 
     t(S| start a_1) = t(S;a_1)
 
@@ -472,7 +482,7 @@ The class has the class method `from_config()` that allows for easy instantiatio
 
 The `Project` instance has the following properties:
 
-- `.max_time`: int, the maximum time it would take to complete all tasks in sequence, for the 0.999 quantile of the duration distributions. Useful for setting simulation horizons.
+- `.max_makespan`: int, the maximum time it would take to complete all tasks in sequence, for the 0.999 quantile of the duration distributions. Useful for setting simulation horizons.
 - `.n_topological_orderings`: int, the number of distinct orders in which the tasks can be carried out, considering only dependencies (not resource constraints). A proxy for the complexity of the project.
 
 ## Policy.py
@@ -726,7 +736,7 @@ For the technically inclined reader, I'll go over some internal methods of the `
 - `._get_descendants()`:  
   - Usage:
     - Return the possible transitions from a state, both due to starting, progressing, and finishing tasks.
-    - A transition is possible if the status of exactly one task is different, going from waiting to active, progressing to the next stage, or from active to finished.
+    - A transition is possible if the status of exactly one task is different, going from idle to active, progressing to the next stage, or from active to finished.
     - Moreover, a task can only start if all its dependencies are finished, and if there are enough resources available for the task along with all other active tasks.
     - Active tasks can always progress, and can thus finish if in their final stage.
   - Arguments:
@@ -775,8 +785,8 @@ The `MetaState` class has the following methods:
   - Usage:
     - Initialize a MetaState object.
   - Arguments:
-    - `waiting_states`: a list of integers, the task ids that are waiting in this metastate.
-    - `active_states`: a list of integers, the task ids that are active in this metastate.
+    - `idle_states`: a list of integers, the task ids that are waiting to start in this metastate.
+    - `active_states`: a list of integers, the task ids that are active in one of their stages in this metastate.
     - `finished_states`: a list of integers, the task ids that are finished in this metastate.
   - Returns:
     - The initialized MetaState object.
@@ -793,8 +803,8 @@ The more common way to instantiate a `MetaState` object is through the class met
 
 The `MetaState` has the following dunder methods implemented:
 
-- `.__hash__()`: get the hash of the metastate. Composed of the hash of the waiting, active, and finished states. Necessary to be able to use metastates as dictionary keys.
-- `.__eq__()`: check if two metastates are equal. Compares the waiting, active, and finished states.
+- `.__hash__()`: get the hash of the metastate. Composed of the hash of the idle, active, and finished states. Necessary to be able to use metastates as dictionary keys.
+- `.__eq__()`: check if two metastates are equal. Compares the idle, active, and finished states.
 - `.__repr__()`: get a string representation of the `MetaState` for printing, in angle brackets. Each task is described by a letter, "I" for idle, "A" for active, and "F" for finished. E.g. `<FAII>` for a 4-task metastate.
 
 Finally, the class has the following properties:

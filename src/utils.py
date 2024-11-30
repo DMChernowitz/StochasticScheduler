@@ -14,6 +14,7 @@ VERBOSE = False
 # the quantile to use when asking the max of continuous distributions with unbounded support.
 MAX_DURATION_QUANTILE = 0.999
 
+
 def get_title_string(title: str) -> str:
     """Return a centered title string with a line of dashes left and right."""
     total_len = 72
@@ -25,13 +26,21 @@ def get_title_string(title: str) -> str:
 
 
 def str_of_length(s: Any, length: int) -> str:
-    """Return a string of length length, padding with spaces if necessary"""
+    """Return a string of length length, padding with spaces if necessary on the right.
+
+    :param s: the string to pad
+    :param length: the length of the output string
+    """
     _s = str(s)[:length]
     return _s + " " * (length - len(_s))
 
 
 def format_table(table: List[List[str]]) -> str:
-    """Put together a table where the first row is the titles."""
+    """Put together a table where the first row is the titles.
+
+    :param table: a list of lists, where the first list is the titles of the columns
+        all subsequent lists are the rows of the table
+    """
     row_iter = range(len(table))
     col_iter = range(len(table[0]))
     col_widths = [max(len(table[_r][_c]) for _r in row_iter)+1 for _c in col_iter]
@@ -42,7 +51,14 @@ def format_table(table: List[List[str]]) -> str:
     return "| "+"|\n| ".join(new_table)+"|"
 
 
-def binom(a,b):
+def binom(a: int, b: int) -> int:
+    """Binomial coefficient, a choose b.
+
+    :param a: the total number of elements
+    :param b: the number of elements to choose
+
+    :return: the number of ways to choose b elements from a
+    """
     r = 1
     for i in range(b):
         r *= a-i
@@ -51,7 +67,10 @@ def binom(a,b):
 
 
 class HypoExponential:
+    """Class to represent a sum of exponential distributions with distinct lambdas."""
     def __init__(self, lambdas: List[float]):
+        """Initialize the distribution with a list of lambdas. Returns an object that can be called with
+        a scalar or vector x to get the probability density at x."""
         if len(set(lambdas)) != len(lambdas):
             raise ValueError("Lambdas must be distinct")
         self.lambdas = np.array(lambdas, dtype=float)
@@ -64,13 +83,18 @@ class HypoExponential:
         self.Ws = np.prod(self.lambdas[:,np.newaxis]/dif, axis=0)
 
     def __call__(self, x: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+        """Return the probability density at x. Can be called with a scalar or a vector x."""
         if isinstance(x, np.ndarray):
             return np.sum(self.Ws[np.newaxis,:] * np.exp(-self.lambdas[np.newaxis,:] * x[:,np.newaxis]), axis=1)
         return sum(self.Ws * np.exp(-self.lambdas * x))
 
 
 class Erlang:
+    """Class to represent an Erlang distribution with parameters k and lambda:
+    the sum of k exponential distributions."""
     def __init__(self, k: int, lam: float):
+        """Initialize the distribution with parameters k and lambda. Returns an object that can be called with
+        a scalar or vector x to get the probability density at x."""
         self.k = k
         self.lam = lam
         self.mean = k/lam
@@ -80,46 +104,11 @@ class Erlang:
         self.C = lam**k/np.math.factorial(k-1)
 
     def __call__(self, x: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+        """Return the probability density at x. Can be called with a scalar or a vector x."""
         return self.C * x**(self.k-1) * np.exp(-self.lam * x)
 
 
-def hypo_exponential(x: float, lambdas: List[float]) -> float:
-    y = 0
-    n = len(lambdas)
-    for i in range(n):
-        W = 1
-        for j in range(n):
-            if i == j:
-                continue
-            W *= lambdas[j] / (lambdas[j] - lambdas[i])
-        y += W * lambdas[i] * np.exp(-lambdas[i] * x)
-    return y
-
-
-def erlang_distribution(x: float, k: int, lam: float) -> float:
-    return (lam**k * x**(k-1) * np.exp(-lam * x)) / np.math.factorial(k-1)
-
-
-def log_normal(x: float, mu: float, sigma: float) -> float:
-    return np.exp(-0.5 * ((np.log(x) - mu) / sigma)**2) / (x * sigma * np.sqrt(2 * np.pi))
-
-
-def log_normal_mean(mu: float, sigma: float) -> float:
-    return np.exp(mu + sigma**2 / 2)
-
-
-def log_normal_variance(mu: float, sigma: float) -> float:
-    return (np.exp(sigma**2) - 1) * np.exp(2 * mu + sigma**2)
-
-
-def erlang_closest_to_log_normal(mu: float, sigma: float) -> Tuple[int, float]:
-    ln_mu = log_normal_mean(mu, sigma)
-    ln_var = log_normal_variance(mu, sigma)
-    k = int(np.round(ln_mu**2 / ln_var))
-    lam = ln_mu/ln_var
-    return k, lam
-
-
+# the following functions turns out not to be useful in practice, as it is biased towards very high k.
 def moments_to_erlang(mu: float, var: float) -> Tuple[int, float]:
     """Get the integer k and lambda for an Erlang distribution with given mean and variance.
 
@@ -135,13 +124,18 @@ def moments_to_erlang(mu: float, var: float) -> Tuple[int, float]:
 
 
 class ArrowCoordMaker:
+    """
+    Helper class to take positions of states on the state space visualization and creates the coordinates of
+    arrows between states if there is an allowed transition.
 
+    Keeps track of how many vertical arrows have been made per row, and shifts them to not overlap"""
     def __init__(self, packing_factor: float = 0.5):
-        """
-        Helper class to take positions of states on the state space visualization and creates the coordinates of
-        arrows between states if there is an allowed transition.
+        """Initialize the ArrowCoordMaker with a packing factor, which determines how much space to leave between
+        arrows that are in the same vertical position.
 
-        Keeps track of how many vertical arrows have been made per row, and shifts them to not overlap"""
+        Also initializes the progress_arrow_table, which keeps track of the arrows that have been made so far.
+        New arrows are shifted to not overlap with existing arrows.
+        """
 
         # key: x position, value: list of tuples (y_start, y_end, xorder)
         self.progress_arrow_table: Dict[int, List[Tuple[int,int,int]]] = {}
@@ -150,7 +144,13 @@ class ArrowCoordMaker:
 
     def make(self, start_pos: Tuple[int, int], end_pos: Tuple[int, int]) -> Tuple[
     Tuple[float, float, float, float], Tuple[float, float]]:
-        """Create an arrow from start_pos to end_pos. Used in the visualization of the state space graph."""
+        """Create an arrow from start_pos to end_pos. Used in the visualization of the state space graph.
+
+        :param start_pos: the x and y position of the start state
+        :param end_pos: the x and y position of the end state
+
+        :return: a tuple of two tuples: the first tuple is the coordinates of the arrow, the second is the midpoint
+        """
 
         # first get all the arrows that are in the way, and find the lowest x shift (xorder) that is not taken
         if (vx := start_pos[0]) == end_pos[0]:
@@ -188,7 +188,9 @@ class ArrowCoordMaker:
         )
         return arrow, (start_pos[0] + 0.5 * dx + shift_x, start_pos[1] + 0.5 * dy)
 
+
 class HandlerEllipse(HandlerPatch):
+    """Handler for the plot legend to show ellipses."""
     def create_artists(self, legend, orig_handle,
                        xdescent, ydescent, width, height, fontsize, trans):
         center = 0.5 * width - 0.5 * xdescent, 0.5 * height - 0.5 * ydescent
@@ -200,6 +202,7 @@ class HandlerEllipse(HandlerPatch):
 
 
 class HandlerArrow(HandlerPatch):
+    """Handler for the plot legend to show arrows."""
     def create_artists(self, legend, orig_handle,
                        xdescent, ydescent, width, height, fontsize, trans):
         p = mpatches.FancyArrow(0, 0.5*height, width, 0, width=3, head_width=height,
@@ -212,7 +215,7 @@ class HandlerArrow(HandlerPatch):
 def plot_exponential_vs_erlang(
         lam: float = 5,
         ks: List[int] = None
-):
+) -> None:
     """Plot the exponential and several Erlang distributions for a fixed lambda and various k
 
     Meant to illustrate that the Erlang (sum of k exponentials)
@@ -247,6 +250,12 @@ class DiGraph:
 
     # Constructor
     def __init__(self, edges, N):
+        """Initialize a directed graph from a list of edges and the number of vertices N.
+
+        :param edges: a list of tuples (src, dest) representing the edges of the graph.
+            Should be in [0,N) for all src and dest.
+        :param N: the number of vertices in the graph
+        """
         # A List of Lists to represent an adjacency list
         self.adj_list = [[] for _ in range(N)]
 
@@ -262,16 +271,23 @@ class DiGraph:
             # count in-degree
             self.indegree[dest] += 1
 
-        # initialize and count the orderings
-        self.n_topological_orders = 0
-        self._count_topological_orders(path=[], discovered=[False] * N)
+        # initialize the count of the orderings
+        self._n_topological_orders: int = None
+
+    @property
+    def n_topological_orders(self) -> int:
+        """Return the number of different ways to traverse the graph, following the directed edges."""
+        if self._n_topological_orders is None:
+            self._n_topological_orders = 0
+            self._count_topological_orders(path=[], discovered=[False] * len(self.indegree))
+        return self._n_topological_orders
 
     def _count_topological_orders(
             self,
             path: List[int],
             discovered: List[bool]
     ) -> None:
-        """Get the number of different ways to traverse the graph, following the directed edges"""
+        """Get the number of different ways to traverse the graph, following the directed edges."""
 
         N = len(self.adj_list)
         for v in range(N):
@@ -305,5 +321,5 @@ class DiGraph:
         # count the topological order if
         # all vertices are included in the path
         if len(path) == N:
-            self.n_topological_orders += 1
+            self._n_topological_orders += 1
 

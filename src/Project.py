@@ -1,4 +1,4 @@
-from typing import Dict, List, TypeVar, Set
+from typing import Dict, List, TypeVar, Set, Union
 
 from src.Objects import Task, Resource
 from config import Config, RandomConfig, LiteralConfig
@@ -34,7 +34,7 @@ class Project:
         self.task_list: List[Task] = sorted(task_list, key=lambda task: task.id)
         self.resource_capacities: Dict[Resource, int] = resource_capacities
 
-        self.check_inputs()
+        self._check_inputs()
         self.prune_dependencies()
 
         self.average_duration: float = sum([task.average_duration for task in task_list])
@@ -82,14 +82,14 @@ class Project:
         )
 
     @property
-    def max_time(self) -> int:
-        """maximum time, if all tasks are performed in sequence (for exponentials, 0.999 quantile).
+    def max_makespan(self) -> Union[int, float]:
+        """return maximum time, if all tasks are performed in sequence (for exponentials, 0.999 quantile).
 
         Useful to upper bound the execution time of a policy.
         """
         return sum([task.duration_distribution.max for task in self.task_list]) + 1
 
-    def check_inputs(self):
+    def _check_inputs(self) -> None:
         """Check if the inputs are valid, raising a ValueError if not."""
         for h,task in enumerate(self.task_list):
             if task.id != h:
@@ -105,6 +105,8 @@ class Project:
                 raise ValueError(f"Dependencies must be valid task ids. "
                                  f"Task {task.id} has dependencies {missing_dependencies} not in the project."
                                  )
+            if any(task.id <= dependency for dependency in task.dependencies):
+                raise ValueError(f"Task {task.id} has dependencies with higher ids than itself.")
         for resource in Resource:
             if resource not in self.resource_capacities:
                 raise ValueError(f"Resource {resource} not in resource capacities")
@@ -113,7 +115,8 @@ class Project:
                 if requirement > self.resource_capacities[resource]:
                     raise ValueError(f"Task {task.id} requires more {resource} than ever available")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """Return a string representation of the project."""
         if len(self.task_list) < 10:
             add_str: str = f"\n# topological orderings due to dependencies: {self.n_topological_orderings}."
         else:
@@ -151,7 +154,21 @@ class Project:
 
     @classmethod
     def from_config(cls, config: Config) -> T:
-        """Create a project from a configuration object"""
+        """Create a project instance from a configuration object.
+
+        :param config: A configuration object, either RandomConfig or LiteralConfig.
+        must have the following attributes:
+            - resource_capacities: dict or int
+            - n_tasks: int (RandomConfig only)
+            - max_dependencies: int (RandomConfig only)
+            - max_simultaneous_resources_required: int (RandomConfig only)
+            - minimum_duration_range: Tuple[int,int] (RandomConfig only)
+            - duration_spread_range: Tuple[int,int] (RandomConfig only)
+            - prob_type: str (RandomConfig only)
+            - max_stages: int (RandomConfig only)
+            - tasks: List[Dict] (LiteralConfig only)
+
+        :return: A project instance, generated randomly or explicitly."""
 
         if isinstance(config.resource_capacities, int):
             resource_capacities = {Resource(n): config.resource_capacities for n in range(1, 1 + len(Resource))}
@@ -183,7 +200,9 @@ class Project:
         return cls(tasks, resource_capacities)
 
     def reset_task_stages(self) -> T:
-        """Reset the stages of all tasks to 0"""
+        """Reset the stages of all tasks to 0, so they can be re-run.
+
+        :return: The reset project instance."""
         for task in self.task_list:
             task.current_stage = 0
         return self
@@ -206,7 +225,13 @@ class Project:
         return mini_digraph.n_topological_orders
 
     def prune_dependencies(self) -> None:
-        """Remove dependencies from tasks that are already dependencies of dependencies. """
+        """Remove dependencies from tasks that are already dependencies of dependencies.
+
+        This is done to remove redundancy in the project description.
+
+        No return value, modifies the Task objects in place."""
+
+        # first find all dependencies of a task, including any depth in the dependency tree
         full_dep_dict: Dict[int, List[int]] = {}
         for task in self.task_list:
             full_dep_dict[task.id] = task.dependencies.copy()
@@ -214,6 +239,8 @@ class Project:
                 for dependency_of_dependency in full_dep_dict[dependency]:
                     if dependency_of_dependency not in full_dep_dict[task.id]:
                         full_dep_dict[task.id].append(dependency_of_dependency)
+
+        # then remove dependencies that are already dependencies of dependencies
         for task in self.task_list:
             task.full_dependencies = full_dep_dict[task.id]
             dependencies_of_dependencies: Set[int] = {
@@ -224,3 +251,5 @@ class Project:
             task.minimal_dependencies = sorted(
                 [dependency for dependency in task.dependencies if dependency not in dependencies_of_dependencies]
             )
+
+        # dependencies
