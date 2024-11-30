@@ -21,7 +21,10 @@ class Experiment:
         """Create an experiment with a project and a configuration from a config object.
 
         :param experiment_config: a Config object, either RandomConfig or LiteralConfig.
-            Must have the attributes n_runs, n_permutations, and resource_capacities,
+            Must have the attributes
+            - n_runs: integer,the number of runs per policy,
+            - n_permutations: integer, the number of static policies to compare,
+            - p_value_threshold: float, the threshold for significance testing,
             as well as all necessary attributes for the project."""
 
         self.project: Project = Project.from_config(experiment_config)
@@ -77,10 +80,11 @@ class Experiment:
 
         for label, p, better_worse in zip(self.results_dict.keys(), *self._calculate_p_value()):
             better = "better" if better_worse else "worse"
-            significant = "significantly" if p < 0.05 else "insignificantly"
+            significant = "significantly" if p < self.config.p_value_threshold else "insignificantly"
             exp_str += f"CSDP is {significant} {better} than policy {label} with p-value {round(p,5)}\n"
 
-        exp_str += f"Comparison complete with {self.config.n_permutations} policies."
+        exp_str += (f"Comparison complete with {self.config.n_permutations} policies " +
+                   f"and likelihood {self.config.p_value_threshold} threshold of significance.")
         print(exp_str+get_title_string(""))
 
         averages: List[float] = []
