@@ -18,14 +18,18 @@ class Experiment:
     """
 
     def __init__(self, experiment_config):
-        """Create an experiment with a project and a configuration from a config object."""
+        """Create an experiment with a project and a configuration from a config object.
+
+        :param experiment_config: a Config object, either RandomConfig or LiteralConfig.
+            Must have the attributes n_runs, n_permutations, and resource_capacities,
+            as well as all necessary attributes for the project."""
 
         self.project: Project = Project.from_config(experiment_config)
         self.config: Config = experiment_config
         # dictionary with policy labels as keys and lists of completion times as values
         self.results_dict: Dict[str, List[int]] = {}
 
-    def run(self):
+    def run(self) -> None:
         """Execute the policy many times, storing the statistics in self.results_dict.
 
         Policies are either labeled in terms of the precedence order of tasks, or as "CSDP".
@@ -58,7 +62,7 @@ class Experiment:
             timestep_finished = dynamic_policy.execute()
             self.results_dict[label].append(timestep_finished)
 
-    def analyze(self):
+    def analyze(self) -> None:
         """Print the results of the experiment and show a histogram of the average completion times.
 
         Also report on the p-value of each policy being worse than CSDP.
@@ -108,8 +112,8 @@ class Experiment:
                 shown_label = True
             else:
                 label = None
-            plt.axvline(x = average, color = "blue", label=label)
-        plt.axvline(x = CSDP_average, color = "red", label="CSDP averages")
+            plt.axvline(x=average, color="blue", label=label)
+        plt.axvline(x=CSDP_average, color="red", label="CSDP averages")
         plt.title(f"Distribution and avg of completion time (N={Config.n_runs}) of policies vs. CSDP")
         plt.xlabel("Completion time")
         plt.ylabel("Frequency")
@@ -120,6 +124,9 @@ class Experiment:
         """Calculate the p-value of each individual policy being worse than CSDP.
 
         Makes the approximation that the t distribution can be approximated by a normal distribution.
+
+        :return: a tuple of two lists, the first containing the p-values
+            and the second containing a bool: whether CSDP is better
         """
         if self.results_dict == {}:
             raise ValueError("Experiment has not been run yet")
@@ -133,7 +140,6 @@ class Experiment:
         CSDP_wins = []
 
         # For large N, the t distribution can be approximated by a normal distribution
-
         normaldist = NormalDist()
 
         for static_average, static_variance in zip(static_averages, static_variances):
@@ -144,7 +150,7 @@ class Experiment:
                 t = -t
             p = normaldist.cdf(t)
 
-            # to improve accuracy, install scipy and use the following code instead of the line above
+            # to improve accuracy, install the scipy package, and use the following code instead of the line above
             # df = (static_variance + CSDP_variance)**2 / (static_variance**2/(n-1) + CSDP_variance**2/(n-1))
             # p = scipy.stats.t.cdf(t, df)
             # one-sided tailed test: only care if static is worse than CSDP

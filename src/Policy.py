@@ -60,15 +60,23 @@ class Policy:
         self.state_sequence: List[Tuple[Union[int,float],State]] = []
         self.time_step: int = 0
 
-    def execute(self):
+    def execute(self) -> Union[int,float]:
+        """Execute the policy until the project is finished. Return the makespan, or duration."""
         self.state_sequence = [(0,self.project.state_space.initial_state.copy())]
         self.time_step: float = 0.
         while not all(self.task_completion.values()):
             self.evolve()
         return self.time_step
 
-    def evolve(self):
-        """Execute one time step of the policy"""
+    def evolve(self) -> None:
+        """Execute one time step of the policy.
+
+        That means, move forward until the earliest task progresses or finishes,
+
+        If there is one: involves choosing a new task to activate, planning for its completion,
+        and administering the resource allocation and state changes.
+        If not, terminate so the next task can be progress or finish, or the project is finished.
+        """
         if self.future_task_progress != {}:
             # Move forward in time to the next task that finishes
             # and administer what happens when it finishes
@@ -168,12 +176,16 @@ class Policy:
         return "\n".join(gantt_list)
 
     def _get_time_axis(self, n_times: int) -> str:
+        """Auxiliary function to get the time axis of e.g. the Gantt chart.
+
+        :param n_times: The number of time steps, or symbols that comprise the time axis."""
         timescale = max(self.task_ids_progressed_per_time.keys(), default=0)
         return "Time : 0 " + "." * (n_times - 4) + " " + str(timescale)[:5]
 
     def get_resource_chart(self, n_times: int = 100) -> str:
-        """Return a string representation of the resource chart of the policy, after execution."""
+        """Return a string representation of the resource chart of the policy, after execution.
 
+        :param n_times: The number of time steps, or symbols that comprise the time axis."""
         timescale = max(self.resources_snapshots.keys(), default=0)
         dt = timescale / n_times
 
@@ -201,8 +213,11 @@ class Policy:
             res_str += "\n".join(resource_graph[::-1] + [self._get_time_axis(n_times)])
         return res_str
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """Return a string representation of the policy,
 
+        before execution: the policy itself.
+        after execution: the policy, the Gantt chart, and the resource chart"""
         pre_str = get_title_string("Policy")
         post_str = get_title_string("")
 
@@ -230,13 +245,19 @@ class Policy:
 class DynamicPolicy:
     """A policy that is dynamically updated based on the current state of the project."""
     def __init__(self, project: Project):
+        """Initialise a dynamic policy for a given project.
+
+        :param project: The project to which the policy applies.
+            The contingency table is an attribute of the project, and is used to determine the next
+            task to execute based on the current state of the project.
+        """
         self.project: Project = project
         self.time_step: Union[int,float] = 0
         self.current_state: State = self.project.state_space.initial_state.copy()
         self.state_sequence: List[Tuple[Union[int,float],State]] = [(self.time_step, self.current_state.copy())]
 
     def execute(self) -> Union[int,float]:
-        """Execute the policy until the project is finished. Return the duration."""
+        """Execute the policy until the project is finished. Return the makespan."""
         while not self.current_state.is_final:
             # get best estimate from dijkstra
             task_start_id = self.project.contingency_table[self.current_state]

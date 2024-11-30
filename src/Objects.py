@@ -6,6 +6,7 @@ import numpy as np
 
 from src.utils import binom, MAX_DURATION_QUANTILE
 
+#  in order to type hint the return type of a method as the class itself, we can use TypeVar
 T = TypeVar("T", bound="Task")
 
 
@@ -52,6 +53,7 @@ class ExponentialDistribution(ProbabilityDistribution):
     Poisson process. Most of this repo is built on the assumption of memorylessness, so this is a key distribution."""
 
     def __init__(self, lam: float):
+        """Initialise the exponential distribution with rate parameter lambda."""
         self.lam = lam
         if lam <= 0:
             raise ValueError("Lambda must be positive")
@@ -59,20 +61,32 @@ class ExponentialDistribution(ProbabilityDistribution):
         self.name = "Exponential"
 
     def realization(self) -> float:
+        """Sample from the exponential distribution and return a single stochast."""
         return np.random.exponential(self.scale)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """Return a string representation of the distribution."""
         return f"Exp with lambda {self.lam}"
 
     def quantile(self, p: float) -> float:
+        """Return the p-quantile of the distribution.
+
+        :param p: float between 0 and 1, the quantile to return.
+        """
         return -np.log(1-p)*self.scale
 
     @property
     def average(self) -> float:
+        """Return the expected duration of an event described by this distribution."""
         return self.scale
 
     @property
     def max(self) -> float:
+        """Return the maximal duration of an event described by this distribution.
+
+        This is infinity, as the exponential distribution has no upper bound.
+        For practical purposes, we use a globally set quantile close to 1.
+        """
         return self.quantile(MAX_DURATION_QUANTILE)
 
 
@@ -92,6 +106,13 @@ class IntProbabilityDistribution(ProbabilityDistribution):
     tolerance = 1e-6
 
     def __init__(self, values: List[int], probabilities: List[float]):
+        """Initialise the discrete probability distribution with values and probabilities.
+
+        :param values: List of integer values that the distribution can take.
+            Must be in increasing order.
+        :param probabilities: List of probabilities that the distribution yields each value.
+            The probabilities must be positive and sum to 1.
+        """
         if any([p <= 0 for p in probabilities]):
             raise ValueError("Probabilities must be positive")
         if abs(sum(probabilities) - 1) > self.tolerance:
@@ -112,32 +133,42 @@ class IntProbabilityDistribution(ProbabilityDistribution):
 
     @property
     def max(self) -> int:
+        """Return the maximal duration of an event described by this distribution. I.e. worst case scenario."""
         return max(self.values)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """Return a string representation of the distribution."""
         return f"IntProbabilityDistribution with values {self.values} and probabilities {self.probabilities}"
 
     @property
-    def values(self):
+    def values(self) -> List[int]:
+        """Return the values of the distribution."""
         return self._values
 
     @property
-    def probabilities(self):
+    def probabilities(self) -> List[float]:
+        """Return the probabilities of the distribution."""
         return self._probabilities
 
     @values.setter
-    def values(self, values):
+    def values(self, values) -> None:
+        """Set the values of the distribution."""
         self._values = values
 
     @probabilities.setter
-    def probabilities(self, probabilities):
+    def probabilities(self, probabilities) -> None:
+        """Set the probabilities of the distribution."""
         self._probabilities = probabilities
 
     @property
-    def average(self):
+    def average(self) -> float:
+        """Return the expected duration of an event described by this distribution."""
         return sum([value * probability for value, probability in zip(self.values, self.probabilities)])
 
     def quantile(self, p: float) -> int:
+        """Return the p-quantile of the distribution.
+
+        :param p: float between 0 and 1, the quantile to return."""
         if p < 0 or p > 1:
             raise ValueError(f"p must be between 0 and 1, not {p}")
         cumulative_probability = 0
@@ -147,10 +178,19 @@ class IntProbabilityDistribution(ProbabilityDistribution):
                 return value
 
     def realization(self) -> int:
+        """Sample from the discrete distribution and return a single stochast."""
         return np.random.choice(self.values, p=self.probabilities)
 
     def _get_conditional_finish_probs(self) -> Dict[int, float]:
-        """Pre-compute the probability of finishing at time, given that it did not finish before."""
+        """Pre-compute the probability of finishing at time, given that it did not finish before.
+
+        This is useful for the simulation, as it allows for a quick lookup of the probability of finishing at a certain
+        time, given that it is not finish in all previous time-steps.
+
+        Involves renormalizing the probabilities to sum to 1 over the remaining time-steps.
+
+        :return: Dictionary with time-steps as keys and the probability of finishing at that time as values.
+        """
         finish_prob_dict: Dict[int,float] = {}
         remaining_prob: float = 1.
         for value, probability in list(zip(self.values, self.probabilities))[:-1]:
@@ -161,7 +201,11 @@ class IntProbabilityDistribution(ProbabilityDistribution):
 
     def prob_finish_at(self, time: int) -> float:
         """Return the probability of finishing at time, given that it did not finish before.
-        If queried on a time-step that is not in the support, return 0."""
+        If queried on a time-step that is not in the support, return 0.
+
+        :param time: integer time-step to query.
+
+        :return: float, the probability of finishing at time."""
         return self._finish_prob_dict.get(time, 0.)
 
 
@@ -202,7 +246,8 @@ class Task:
         self.stages: int = stages
         self.current_stage: int = 0
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """Return a comprehensive string representation of the task."""
         return (f"Task {self.id} \n"
                 f"with trimmed dependencies {self.minimal_dependencies}, \n"
                 f"and full dependencies {self.full_dependencies}, \n"
@@ -220,8 +265,15 @@ class Task:
         return self.duration_distribution.realization()
 
     def enough_resources(self, resources_available: Dict[Resource, int]) -> bool:
-        """Check if the task can be executed with the available resources."""
-        return all([resources_available[resource] >= self.resource_requirements[resource] for resource in self.resource_requirements])
+        """Check if the task can be executed with the available resources.
+
+        :param resources_available: Dictionary with resources as keys and available amount of that resource as values.
+
+        :return: bool, True if enough resources are available, False otherwise."""
+        return all(
+            [resources_available[resource] >= self.resource_requirements[resource]
+             for resource in self.resource_requirements]
+        )
 
     @property
     def average_duration(self) -> float:
@@ -270,7 +322,7 @@ class Task:
             max_stages: int = 5
     ) -> T:
         """
-        Generate a task with random resource requirements and duration.
+        Generate a task with random resource requirements and duration. A way to create tasks from the config.
 
         :param task_id: integer denoting the task ids
         :param dependencies: list of task ids that this task depends on (must be done before)
@@ -288,7 +340,7 @@ class Task:
         if isinstance(resource_types, int):
             resource_types: List[Resource] = list(np.random.choice(Resource, resource_types, replace=False))
 
-        #error checks:
+        #  error checks:
         if minimum_duration_range[1] < minimum_duration_range[0]:
             raise ValueError("Minimum duration range must be non-decreasing")
         if duration_spread_range[1] < duration_spread_range[0]:
@@ -296,9 +348,9 @@ class Task:
         if minimum_duration_range[0] < 1:
             raise ValueError("Minimum duration must be at least 1")
 
-        min_days = np.random.randint(minimum_duration_range[0], minimum_duration_range[1] + 1)
-        max_days = min_days + np.random.randint(duration_spread_range[0], duration_spread_range[1] + 1)
-        days = list(range(min_days, max_days + 1))
+        min_duration = np.random.randint(minimum_duration_range[0], minimum_duration_range[1] + 1)
+        max_duration = min_duration + np.random.randint(duration_spread_range[0], duration_spread_range[1] + 1)
+        days = list(range(min_duration, max_duration + 1))
         stages = np.random.randint(1, max_stages + 1)
 
         if max_stages > cls.MAX_STAGES:
@@ -308,18 +360,18 @@ class Task:
             case "uniform":
                 duration_distribution = IntProbabilityDistribution(
                     days,
-                    [1 / (max_days - min_days + 1)] * (max_days - min_days + 1),
+                    [1 / (max_duration - min_duration + 1)] * (max_duration - min_duration + 1),
                 )
             case "binomial":
                 duration_distribution = IntProbabilityDistribution(
                     days,
                     [
-                        binom(max_days - min_days, i) * 0.5 ** i * 0.5 ** (max_days - min_days - i) for i in
-                        range(max_days - min_days + 1)
+                        binom(max_duration - min_duration, i) * 0.5 ** i * 0.5 ** (max_duration - min_duration - i) for i in
+                        range(max_duration - min_duration + 1)
                     ],
                 )
             case "random":
-                probabilities: np.array = np.random.rand(max_days - min_days + 1)
+                probabilities: np.array = np.random.rand(max_duration - min_duration + 1)
                 duration_distribution: IntProbabilityDistribution = IntProbabilityDistribution(
                     days, probabilities / sum(probabilities)
                 )
@@ -357,9 +409,20 @@ class Task:
 
     @classmethod
     def from_dict(cls, task_dict: dict) -> T:
-        """Create a task from a config dictionary."""
+        """Create a task from a config dictionary.
 
-        if task_dict["distribution"].lower() in ["erlang", "exponential"]:
+        :param task_dict: dictionary with keys, values:
+            'id': int,
+            'resource_requirements': Dict[Resource, int], required resources and amounts,
+            'distribution': str, currently only 'exponential' supported,
+            'avg_stage_duration': float, average duration of a stage of the task,
+            'dependencies': List[int], list of task ids that must be completed before this task can start,
+            'stages': int, number of times the distribution of the task must pass before it is completed.
+
+        :return: Task object
+        """
+
+        if task_dict["distribution"].lower() in ["exponential"]:
             probability_distribution = ExponentialDistribution(1/task_dict["avg_stage_duration"])
         else:
             raise ValueError(f"Memoryfull distributions currently not supported. Got {task_dict['distribution']}.")
