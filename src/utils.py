@@ -43,12 +43,12 @@ def format_table(table: List[List[str]]) -> str:
     """
     row_iter = range(len(table))
     col_iter = range(len(table[0]))
-    col_widths = [max(len(table[_r][_c]) for _r in row_iter)+1 for _c in col_iter]
-    new_table = ["| ".join([str_of_length(table[_r][_c],col_widths[_c]) for _c in col_iter]) for _r in row_iter]
-    hline = "|-".join(["-"*col_widths[_c] for _c in col_iter])
-    new_table.insert(1,hline)
+    col_widths = [max(len(table[_r][_c]) for _r in row_iter) + 1 for _c in col_iter]
+    new_table = ["| ".join([str_of_length(table[_r][_c], col_widths[_c]) for _c in col_iter]) for _r in row_iter]
+    hline = "|-".join(["-" * col_widths[_c] for _c in col_iter])
+    new_table.insert(1, hline)
     new_table.append(hline)
-    return "| "+"|\n| ".join(new_table)+"|"
+    return "| " + "|\n| ".join(new_table) + "|"
 
 
 def binom(a: int, b: int) -> int:
@@ -61,13 +61,14 @@ def binom(a: int, b: int) -> int:
     """
     r = 1
     for i in range(b):
-        r *= a-i
-        r //= i+1
+        r *= a - i
+        r //= i + 1
     return r
 
 
 class HypoExponential:
     """Class to represent a sum of exponential distributions with distinct lambdas."""
+
     def __init__(self, lambdas: List[float]):
         """Initialize the distribution with a list of lambdas. Returns an object that can be called with
         a scalar or vector x to get the probability density at x."""
@@ -75,37 +76,38 @@ class HypoExponential:
             raise ValueError("Lambdas must be distinct")
         self.lambdas = np.array(lambdas, dtype=float)
         self.n = len(lambdas)
-        self.mean = sum(1/self.lambdas)
-        self.variance = sum(self.lambdas**-2)
+        self.mean = sum(1 / self.lambdas)
+        self.variance = sum(self.lambdas ** -2)
 
-        dif = self.lambdas[:,np.newaxis] - self.lambdas[np.newaxis,:] + np.eye(self.n)
+        dif = self.lambdas[:, np.newaxis] - self.lambdas[np.newaxis, :] + np.eye(self.n)
         # precompute the weights for the distribution
-        self.Ws = np.prod(self.lambdas[:,np.newaxis]/dif, axis=0)
+        self.Ws = np.prod(self.lambdas[:, np.newaxis] / dif, axis=0)
 
     def __call__(self, x: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """Return the probability density at x. Can be called with a scalar or a vector x."""
         if isinstance(x, np.ndarray):
-            return np.sum(self.Ws[np.newaxis,:] * np.exp(-self.lambdas[np.newaxis,:] * x[:,np.newaxis]), axis=1)
+            return np.sum(self.Ws[np.newaxis, :] * np.exp(-self.lambdas[np.newaxis, :] * x[:, np.newaxis]), axis=1)
         return sum(self.Ws * np.exp(-self.lambdas * x))
 
 
 class Erlang:
     """Class to represent an Erlang distribution with parameters k and lambda:
     the sum of k exponential distributions."""
+
     def __init__(self, k: int, lam: float):
         """Initialize the distribution with parameters k and lambda. Returns an object that can be called with
         a scalar or vector x to get the probability density at x."""
         self.k = k
         self.lam = lam
-        self.mean = k/lam
-        self.variance = k/lam**2
+        self.mean = k / lam
+        self.variance = k / lam ** 2
 
         # precompute the constant for the distribution
-        self.C = lam**k/np.math.factorial(k-1)
+        self.C = lam ** k / np.math.factorial(k - 1)
 
     def __call__(self, x: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """Return the probability density at x. Can be called with a scalar or a vector x."""
-        return self.C * x**(self.k-1) * np.exp(-self.lam * x)
+        return self.C * x ** (self.k - 1) * np.exp(-self.lam * x)
 
 
 # the following functions turns out not to be useful in practice, as it is biased towards very high k.
@@ -116,7 +118,7 @@ def moments_to_erlang(mu: float, var: float) -> Tuple[int, float]:
     var = k/lambda^2
     """
     # first get the closest integer k > 1, as physical tasks never have the mode at 0
-    k = max(2, round(mu**2 / var))
+    k = max(2, round(mu ** 2 / var))
 
     # then get the lambda that fits the mean best
     lam = k / mu
@@ -129,7 +131,8 @@ class ArrowCoordMaker:
     arrows between states if there is an allowed transition.
 
     Keeps track of how many vertical arrows have been made per row, and shifts them to not overlap"""
-    def __init__(self, packing_factor: float = 0.5):
+
+    def __init__(self, packing_factor: float = 0.8):
         """Initialize the ArrowCoordMaker with a packing factor, which determines how much space to leave between
         arrows that are in the same vertical position.
 
@@ -138,12 +141,15 @@ class ArrowCoordMaker:
         """
 
         # key: x position, value: list of tuples (y_start, y_end, xorder)
-        self.progress_arrow_table: Dict[int, List[Tuple[int,int,int]]] = {}
+        self.progress_arrow_table: Dict[int, List[Tuple[int, int, int]]] = {}
         self.bub = 0.1  # margin between end of the arrow and the state bubble (distance state-state is 1)
         self.packing_factor = packing_factor
 
-    def make(self, start_pos: Tuple[int, int], end_pos: Tuple[int, int]) -> Tuple[
-    Tuple[float, float, float, float], Tuple[float, float]]:
+    def make(
+            self,
+            start_pos: Tuple[int, int],
+            end_pos: Tuple[int, int]
+            ) -> Tuple[Tuple[float, float, float, float], Tuple[float, float]]:
         """Create an arrow from start_pos to end_pos. Used in the visualization of the state space graph.
 
         :param start_pos: the x and y position of the start state
@@ -158,14 +164,10 @@ class ArrowCoordMaker:
             overlappers = []
             new_lower, new_upper = min(start_pos[1], end_pos[1]), max(start_pos[1], end_pos[1])
             for alt_lower, alt_upper, xorder in self.progress_arrow_table[vx]:
-                if (
-                        new_lower < alt_lower < new_upper or
-                        new_lower < alt_upper < new_upper or
-                        alt_lower < new_lower < alt_upper or
-                        alt_lower < new_upper < alt_upper
-                ):  # overlap. Two arrows can't completely coincide by construction.
+                if new_lower < alt_upper and new_upper > alt_lower:  # overlap.
+                    # Two arrows can't completely coincide by construction.
                     overlappers.append(xorder)
-            for xorder in range(len(self.progress_arrow_table[vx])+1):
+            for xorder in range(len(self.progress_arrow_table[vx]) + 1):
                 if xorder not in overlappers:
                     break
             self.progress_arrow_table[vx].append((new_lower, new_upper, xorder))
@@ -191,6 +193,7 @@ class ArrowCoordMaker:
 
 class HandlerEllipse(HandlerPatch):
     """Handler for the plot legend to show ellipses."""
+
     def create_artists(self, legend, orig_handle,
                        xdescent, ydescent, width, height, fontsize, trans):
         center = 0.5 * width - 0.5 * xdescent, 0.5 * height - 0.5 * ydescent
@@ -203,9 +206,10 @@ class HandlerEllipse(HandlerPatch):
 
 class HandlerArrow(HandlerPatch):
     """Handler for the plot legend to show arrows."""
+
     def create_artists(self, legend, orig_handle,
                        xdescent, ydescent, width, height, fontsize, trans):
-        p = mpatches.FancyArrow(0, 0.5*height, width, 0, width=3, head_width=height,
+        p = mpatches.FancyArrow(0, 0.5 * height, width, 0, width=3, head_width=height,
                                 head_length=0.5 * height, length_includes_head=True)
         self.update_prop(p, orig_handle, legend)
         p.set_transform(trans)
@@ -225,7 +229,7 @@ def plot_exponential_vs_erlang(
     :param ks: the k of the Erlang distribution
     """
     if ks is None:
-        ks = [2,5]
+        ks = [2, 5]
 
     import matplotlib.pyplot as plt
 
@@ -322,4 +326,3 @@ class DiGraph:
         # all vertices are included in the path
         if len(path) == N:
             self._n_topological_orders += 1
-
